@@ -1,0 +1,10 @@
+# Install in addition to requirements.txt for external closure data preparation.
+requests>=2.31,<3
+cdsapi>=0.7.7,<1
+xarray>=2024.1
+netCDF4>=1.6
+geopandas>=0.14
+shapely>=2.0
+pyproj>=3.6
+rtree>=1.2
+

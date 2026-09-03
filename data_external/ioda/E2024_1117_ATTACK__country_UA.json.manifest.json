@@ -1,0 +1,12 @@
+{
+  "bytes": 64642,
+  "created_unix": 1786093368.509529,
+  "end_utc": "2024-11-23 00:00:00",
+  "entity_code": "UA",
+  "entity_type": "country",
+  "http_status": 200,
+  "path": "data_external/ioda/E2024_1117_ATTACK__country_UA.json",
+  "request_url": "https://api.ioda.inetintel.cc.gatech.edu/v2/signals/raw/country/UA?from=1731715200&until=1732320000",
+  "sha256": "f649ef6333b40701a7b2e1c75b7191fd9d1787aac32f576d2439e605cc213853",
+  "start_utc": "2024-11-16 00:00:00"
+}

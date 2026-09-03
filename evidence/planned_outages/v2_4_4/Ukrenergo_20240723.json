@@ -1,0 +1,18 @@
+{
+  "accessed_utc": "2026-08-05T09:30:00Z",
+  "derived_utc_window": {
+    "end": "2024-07-23 21:00:00Z",
+    "start": "2024-07-22 21:00:00Z"
+  },
+  "event_local_timezone": "Europe/Kyiv (EEST, UTC+3)",
+  "facts": [
+    "Until 14:00 local, one queue was applied in all regions.",
+    "Western/southern group: 14:00-16:00 one queue; 16:00-19:00 two queues; 19:00-24:00 three queues.",
+    "Kyiv/eastern-central group: 14:00-16:00 two queues; 16:00-24:00 three queues."
+  ],
+  "published": "2024-07-23 13:15 local",
+  "publisher": "UNN and Suspilne, citing NPC Ukrenergo",
+  "research_use": "Auxiliary L2 regional dose-response/sensitivity episode, not a clean confirmatory validation; exclude regions affected by 20 July attack in sensitivity.",
+  "title": "Ukrenergo updated 23 July outage schedules with regional queue intensity",
+  "url": "https://unn.ua/en/news/there-will-be-fewer-restrictions-we-have-updated-outage-schedules-by-region"
+}

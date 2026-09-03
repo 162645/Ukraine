@@ -1,0 +1,22 @@
+{
+  "accessed_utc": "2026-08-05T12:00:00Z",
+  "derived_utc_window": {
+    "start": "2024-07-24 13:00:00Z",
+    "end": "2024-07-24 15:00:00Z"
+  },
+  "event_local_timezone": "Europe/Kyiv (EEST, UTC+3)",
+  "facts": [
+    "Volynoblenergo final updates cancelled scheduled outages through 20:00 local.",
+    "Zaporizhzhyaoblenergo kept Queue 1 scheduled from 16:00 to 18:00 local.",
+    "No IP-to-queue mapping is available, so the treated fraction is unknown."
+  ],
+  "published": "2024-07-24",
+  "publisher": "Volynoblenergo and Zaporizhzhyaoblenergo official records",
+  "research_use": "Auxiliary oblast-level same-day falsification only; not B2 calibration training.",
+  "title": "Zaporizhzhia partial-queue execution versus Volyn cancellation, 24 July",
+  "urls": [
+    "https://energy.volyn.ua/pro-tovarystvo/novyny/gpv-gav-sgav/",
+    "https://t.me/s/Zaporizhzhyaoblenergo_news/966"
+  ],
+  "immutable_status": "public links verified; local snapshots and Telegram Desktop JSON required for submission"
+}

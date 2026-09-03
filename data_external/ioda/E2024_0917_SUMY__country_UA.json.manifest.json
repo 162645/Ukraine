@@ -1,0 +1,12 @@
+{
+  "bytes": 38139,
+  "created_unix": 1786093366.223465,
+  "end_utc": "2024-09-20 00:00:00",
+  "entity_code": "UA",
+  "entity_type": "country",
+  "http_status": 200,
+  "path": "data_external/ioda/E2024_0917_SUMY__country_UA.json",
+  "request_url": "https://api.ioda.inetintel.cc.gatech.edu/v2/signals/raw/country/UA?from=1726444800&until=1726790400",
+  "sha256": "263ec8d46e21fa0b25d43bdb532aeb4bf4dcb2fb1aa460ed8a9ac6cf2378bf66",
+  "start_utc": "2024-09-16 00:00:00"
+}

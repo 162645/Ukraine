@@ -1,0 +1,4 @@
+source_id,source_role,publisher,source_type,url,expected_snapshot,correction_note
+SRC_VOL_0724_REVERIFY,oblast_execution,Volynoblenergo,official_operator_web,https://energy.volyn.ua/pro-tovarystvo/novyny/gpv-gav-sgav/,evidence/public_snapshots/v2_4_4/SRC_VOL_0724_REVERIFY.html,Independent raw-byte reverification; does not alter frozen labels
+SRC_UHMC_HEAT_REVERIFY,weather,Ukrainian Hydrometeorological Center,official_weather_web,https://www.meteo.gov.ua/ua/news/Spekotna-pohoda-v-Ukraini-8-15-lipnya,evidence/public_snapshots/v2_4_4/SRC_UHMC_HEAT_REVERIFY.html,Independent raw-byte reverification of official heat notice
+SRC_ZP_0724_CORRECTED_966,oblast_execution,Zaporizhzhyaoblenergo,official_operator_telegram_public_web,https://t.me/s/Zaporizhzhyaoblenergo_news/966,evidence/public_snapshots/v2_4_4/SRC_ZP_0724_CORRECTED_966.html,Corrects frozen locator 974 to official public-channel post 966; schedule content and labels unchanged

@@ -1,0 +1,26 @@
+{
+  "ok": false,
+  "checks": {
+    "event_registry": [],
+    "schedule_registry": [],
+    "oblast_execution_registry": [],
+    "weather_episode_registry": [],
+    "weather_admin1_2h": [
+      "missing /Users/bytedance/WorkPlace/code_file/TTADK/else/ukraine/ukraine_resilience_experiment_v2_4/data_derived/weather_admin1_2h.parquet"
+    ],
+    "immutable_evidence": [
+      "evidence verification is not submission-ready"
+    ]
+  },
+  "frozen_hashes": {
+    "config": "4a26f82e2b669ef72acd2e2bc520432f457d6953717d0f2ea49dbd655945d37b",
+    "event_registry": "2168a16eb3aa438142ab1238e1dd75e2a4dc7af43ff99dc81d6a17147bb42775",
+    "schedule_registry": "787e2cfc7d956241f7c1da6f9d3504fc2aa6aac2ade947083fa6108e1875e248",
+    "oblast_execution_registry": "ca6e6e2212db80dc3abf69c64c62777c4543db81ae6df892668c1ebbb59a70e0",
+    "weather_episode_registry": "cc580b74409b631c272af9d8f8abc5a8479f08b5bcda1052b690cec6275a1dea",
+    "source_post_registry": "ca08b2e4ed7ea13841bf8fbc005ed651bd06500fd8140451c538170d962f972e",
+    "exposure_registry": "ec2f778f06ccc6604076d9e1b4f30c43fcf32e82f7c61fd7d45cd36ac7443e55",
+    "mapping_manifest": "307de7449627589fce793e59ba5302b6b385b573a934aacddea5b39f5cb11a1b",
+    "admin1_aliases": "34fbce0f768e0144355ca104b36c76f110d00ecc6059455dd393df24b3bd63d8"
+  }
+}

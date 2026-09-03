@@ -1,0 +1,13 @@
+.ttadk/
+specs/doc_export/
+.env.local
+config/*.local.yaml
+config/*.local.json
+.codex_review/
+run_archives/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+*.log
+config/*local.yaml
+config/*local.json

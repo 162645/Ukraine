@@ -1,0 +1,28 @@
+{
+  "mapping_manifest_version": "mapping_v2",
+  "description": "Frozen IP-to-ASN and IP-to-country/Admin1 mapping contract. Target geography must come only from the target IP mapping, never from ASGeo path text or ISP fields.",
+  "table": "net_measure.UKRAINE__ip_mapping_cache",
+  "selection": "latest row per IP by updated_at within the frozen snapshot",
+  "target_node": [
+    "asn",
+    "geo_country",
+    "geo_region"
+  ],
+  "path_node": [
+    "asn",
+    "geo_country",
+    "geo_region"
+  ],
+  "as0_policy": "ASN 0 is unknown and cannot form a high-confidence direct edge",
+  "unknown_geo_policy": "Unknown country or Admin1 cannot form an ASGeo edge",
+  "gap_policy": "Traceroute stars are GAPs; nodes separated by a GAP are not direct edges",
+  "freeze": {
+    "frozen": true,
+    "snapshot_date": "2026-06-25 19:46:11 UTC",
+    "row_count": 10887295,
+    "content_checksum_uint64": "6840726132015751335",
+    "snapshot_hash": "a26571ab21c2dc9be3023f6143bcbf07f976bb4568ec79966f66c9ac94ee9543",
+    "frozen_at_utc": "2026-08-02T09:45:32.033568+00:00",
+    "selection": "latest row per IP by updated_at at or before snapshot_date"
+  }
+}

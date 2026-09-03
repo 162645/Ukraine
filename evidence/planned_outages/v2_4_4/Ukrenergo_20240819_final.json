@@ -1,0 +1,19 @@
+{
+  "accessed_utc": "2026-08-05T12:00:00Z",
+  "derived_utc_window": {
+    "start": "2024-08-19 14:00:00Z",
+    "end": "2024-08-19 18:00:00Z"
+  },
+  "event_local_timezone": "Europe/Kyiv (EEST, UTC+3)",
+  "facts": [
+    "Official Ukrenergo same-day status states one outage queue from 17:00 to 21:00 local.",
+    "Consumption was rising because heat spread across most oblasts.",
+    "Critical infrastructure and qualifying high-import businesses were excluded."
+  ],
+  "published": "2024-08-19",
+  "publisher": "NPC Ukrenergo official Telegram channel",
+  "research_use": "Held-out national L3 weak-supervision validation; heat-adjusted sensitivity required.",
+  "title": "Ukrenergo: one outage queue from 17:00 to 21:00 on 19 August",
+  "url": "https://t.me/s/Ukrenergo?before=3184",
+  "immutable_status": "public link verified; Telegram Desktop JSON still required for submission"
+}

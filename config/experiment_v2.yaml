@@ -1,0 +1,412 @@
+freeze:
+  plan_version: analysis_plan_v2_4_3_prerun_frozen
+  frozen: true
+  measurement_view: AWS_Frankfurt_to_Ukraine
+  event_registry: event_registry_v2.csv
+  schedule_registry: planned_outage_schedule_v1.csv
+  oblast_execution_registry: oblast_execution_registry_v1.csv
+  weather_episode_registry: weather_episode_registry_v1.csv
+  source_post_registry: source_post_registry_v1.csv
+  exposure_registry: outage_exposure_registry_v2.csv
+  mapping_manifest: mapping_manifest_v2.frozen.json
+  admin1_aliases: admin1_aliases_v1.csv
+database:
+  host: 127.0.0.1
+  http_port: 8123
+  native_port: 9000
+  user: default
+  password: ''
+  database: net_measure
+  secure: false
+  connect_timeout: 30
+  send_receive_timeout: 3600
+  apply_query_settings: true
+  tables:
+    import_files: net_measure.import_files
+    ping: net_measure.UKRAINE__ping
+    trace: net_measure.UKRAINE__quarter_traceroute
+    mapping: net_measure.UKRAINE__ip_mapping_cache
+runtime:
+  max_memory_gb: 32
+  ch_max_memory_usage_frac: 0.5
+  ch_external_group_by_frac: 0.25
+  ch_external_sort_frac: 0.25
+  ch_max_threads: 8
+  ch_query_retries: 8
+  ch_retry_backoff_seconds: 3
+  fetch_block_rows: 200000
+  prefix_batch: 500
+  panel_batch_days: 2
+  trace_prefix_batch: 300
+  n_bootstrap: 1000
+  n_permutations: 500
+  random_seed: 20240601
+  strict_fail_on_gate: true
+  require_frozen_mapping: true
+study:
+  # Hard preflight contract. In real mode raw timestamp/Unix-epoch samples are
+  # compared before any expensive query; mismatch aborts the entire run.
+  measurement_timestamp_timezone: UTC
+  start_utc: '2024-06-01 00:00:00'
+  end_utc: '2025-01-31 23:59:59'
+  expected_cycle_interval_hours: 2
+  cycle_gap_tolerance_min: 20
+  data_center: AWS_frankfurt
+  target_country: Ukraine
+  denominator_mode: static_full_scan
+  static_full_scan_confirmed: true
+  support_inference: observed_ping_span
+  country_only_admin1_policy: national_only
+quality:
+  require_import_done: true
+  allow_missing_import_metadata: false
+  ping_rows_mad_k: 5.0
+  min_complete_cycle_ratio: 0.95
+  min_valid_admin1_ratio: 0.9
+  min_asn_mapping_ratio: 0.95
+  min_prefix_mapping_mode_share: 0.5
+  min_valid_prefix_mapping_ratio: 0.5
+  max_cycle_interval_relative_error: 0.25
+  max_unexplained_prefix_turnover: 0.25
+  valid_country_aliases:
+  - Ukraine
+  - UA
+  - UKR
+  - 乌克兰
+  - Україна
+  - Украина
+  unknown_labels:
+  - ''
+  - UNKNOWN
+  - Unknown
+  - unknown
+  - 未知
+  - N/A
+  - None
+  - 'null'
+  reserved_cidrs:
+  - 10.0.0.0/8
+  - 100.64.0.0/10
+  - 172.16.0.0/12
+  - 192.168.0.0/16
+  - 169.254.0.0/16
+  - 224.0.0.0/4
+  - 240.0.0.0/4
+  min_complete_cycle_ratio_within_support: 0.9
+  min_event_window_complete_ratio: 0.75
+  min_event_pre_complete_cycles: 6
+  min_event_post_complete_cycles: 12
+  edge_gap_is_fatal: false
+  min_valid_admin1_ratio_warning: 0.5
+  min_prefix_mapping_mode_share_warning: 0.5
+  country_only_admin1_labels:
+  - Ukraine
+  - 乌克兰
+  - Україна
+  - Украина
+  fatal_gates:
+  - support_complete_cycle_ratio
+  - valid_asn_ratio
+  - denominator_confirmed
+  - primary_event_availability
+baseline:
+  slot_scheme: dow_x_2h
+  window_weeks: 4
+  robust_window_weeks:
+  - 2
+  - 4
+  - 6
+  exclude_event_pad_days: 3
+  min_expected_responses: 3.0
+  min_baseline_cycles_per_slot: 3
+  stable_ip_resp_rate: 0.8
+  stable_ip_resp_rate_robust:
+  - 0.7
+  - 0.8
+  - 0.9
+  min_exposure_cycles: 24
+  reach_clip_for_plot:
+  - 0.0
+  - 1.5
+  abnormal_quantile: 0.05
+  abnormal_mad_k: 3.0
+aggregation:
+  primary: prefix24_equal
+  report:
+  - prefix24_equal
+  - ip_weighted
+  - asn_admin1_equal
+  - event_equal
+group_admission:
+  min_valid_prefix24: 20
+  min_valid_prefix24_robust:
+  - 10
+  - 20
+  - 50
+  min_stable_ip: 200
+  min_pre_cycles: 12
+  min_post_cycles: 12
+  min_common_groups_for_repeatability: 20
+event_windows:
+  event_study_pre_h: -24
+  event_study_post_h: 48
+  recovery_window_days: 7
+  immediate_pre_h:
+  - -6
+  - -2
+  immediate_post_h:
+  - 0
+  - 2
+  deficit_window_h: 12
+  deficit_auc_full_h: 48
+  abnormal_consecutive: 2
+  recovery_consecutive: 2
+  recovery_fraction_thresholds:
+  - 0.5
+  - 0.9
+  anchor_sensitivity_hours:
+  - -6
+  - -4
+  - -2
+  - 0
+  - 2
+  - 4
+  - 6
+  pretrend_equivalence_margin: 0.03
+  placebo_week_offsets:
+  - -4
+  - -3
+  - -2
+  - 2
+  - 3
+  - 4
+  clean_baseline_lookback_h: 168
+  clean_baseline_buffer_h: 6
+  pretrend_window_h: 24
+  pretrend_slope_equivalence_margin_per_h: 0.002
+  regional_placebo_draws: 100
+  network_replication_window_h: 24
+calibration:
+  methods:
+  - B0
+  - B1
+  - B2
+  min_validation_events: 1
+  min_publication_validation_events: 2
+  bootstrap_block: event_admin1
+  success_metric: delta_auprc_vs_B1
+  require_ci_lower_gt_zero: true
+  min_b2_ip: 1000
+  permutation_repetitions: 200
+  training_cutoff_policy: fixed_temporal_holdout
+  normal_cycles_per_planned_cycle: 4
+  validation_normal_cycles_per_planned_cycle: 4
+  min_positive_validation_event_fraction: 1.0
+  min_publication_validation_clusters: 2
+  min_cycle_schedule_overlap_fraction: 0.5
+  min_training_events: 1
+  allow_national_country_only_targets: true
+  auxiliary_planned_roles:
+  - planned_aux_confounded
+  allow_reduced_exposure_operational: true
+  publication_requires_configured_exposure: true
+  label_quality_levels:
+  - L1_queue_address
+  - L2_admin1_time
+  - L3_national_time
+  primary_label_quality: L3_national_time
+  threshold_sensitivity_quantiles:
+  - 0.5
+  - 0.6
+  - 0.7
+  - 0.8
+  - 0.9
+  regional_falsification:
+    enabled: true
+    primary_contrast_id: C2024_0724_ZP_VOL
+    min_common_asn: 3
+    min_prefix24_per_arm: 20
+    require_same_window: true
+    require_verified_final_operator_records: true
+    require_no_attack_recovery_confound_for_primary: true
+    role: auxiliary_mechanism_validation_not_sensor_selection
+  weather_sensitivity:
+    enabled: true
+    data_path: data_derived/weather_admin1_2h.parquet
+    required_columns:
+    - measure_time
+    - admin1
+    - t2m_mean_c
+    - previous_24h_max_c
+    - temperature_anomaly_c
+    - official_heat_warning
+    primary_covariates:
+    - t2m_mean_c
+    - previous_24h_max_c
+    - official_heat_warning
+    role: confound_control_not_treatment
+regional_calibration:
+  enabled: true
+  required_for_v25_closure: true
+  # Volyn has six summer regional windows; Khmelnytskyi has six published queue
+  # schedules with conflict masks. Lviv remains single-event validation only.
+  primary_regions:
+  - Volyn Oblast
+  - Khmelnytskyi Oblast
+  core_dates:
+  - '2024-07-07'
+  - '2024-07-20'
+  - '2024-07-28'
+  - '2024-08-19'
+  - '2024-08-20'
+  - '2024-08-21'
+  min_train_events: 3
+  min_holdout_events_for_estimability: 3
+  min_positive_event_fraction: 0.6666666667
+  transition_buffer_minutes: 30
+  transition_buffer_sensitivity_minutes:
+  - 30
+  - 60
+matching:
+  exact_same_asn: true
+  max_controls_per_treated: 1
+  allow_control_reuse: true
+  fallback_cross_asn: false
+  covariates:
+  - pre_mean
+  - pre_sd
+  - expected_ip_n
+  - rtt_median
+  caliper_sd: 0.5
+  min_matched_pairs: 30
+  max_abs_smd: 0.2
+  analysis_unit: prefix24_x_group
+prediction:
+  targets:
+  - max_deficit
+  - deficit_auc_full
+  - t90_h
+  binary_thresholds:
+    max_deficit:
+    - 0.1
+    - 0.2
+    deficit_auc_full:
+    - 2.0
+    - 5.0
+    t90_h:
+    - 24.0
+    - 48.0
+  models:
+  - M0_global
+  - M1_admin1
+  - M2_asn
+  - M3_group
+  - M4_ridge_history
+  - M5_gbdt_history
+  evaluation: rolling_origin_event
+  min_train_events: 2
+  permutation_repetitions: 200
+  ridge_alpha: 10.0
+  gbdt_estimators: 200
+  gbdt_max_depth: 3
+  primary_model: M4_ridge_history
+  simple_baseline_model: M3_group
+  min_relative_mae_improvement: 0.02
+  permutation_alpha: 0.05
+  min_repeatability_rho: 0.2
+  min_repeatability_pairs: 3
+  min_repeatability_icc: 0.1
+  repeatability_bootstrap: 1000
+  min_test_events_for_claim: 3
+  min_event_win_fraction: 0.67
+external_validation:
+  consecutive_cycles: 2
+  significant_upper_ci_below: 0.0
+  admin1_reach_deviation_threshold: -0.05
+  max_temporal_offset_h: 6
+  spatial_window_h: 24
+  fdr_alpha: 0.05
+  top_k: 5
+recovery_debt:
+  lookbacks_hours:
+  - 72
+  - 168
+  - 720
+  primary_exposure: outage_hours_168h
+  exposure_groups: tertile
+  observation_end_hours: 168
+  min_exposure_variation: 2
+  network_debt_window_h: 24
+  min_events_for_confirmatory_claim: 3
+  allow_numpy_cluster_fallback: true
+path:
+  enabled_events:
+  - E2024_1117_ATTACK
+  - E2024_1128_ATTACK
+  - E2024_0917_SUMY
+  window_hours: 6
+  robust_window_hours:
+  - 6
+  - 12
+  baseline_hours: 168
+  event_hours: 48
+  recovery_hours: 120
+  strict_min_as_completeness: 0.7
+  strict_min_geo_completeness: 0.6
+  strict_min_edge_completeness: 0.2
+  min_traces_group_phase: 50
+  min_direct_edges_group_phase: 20
+  new_edge_min_windows: 2
+  new_edge_min_support_ip: 3
+  new_edge_min_support_prefix: 2
+  jsd_permutations: 200
+  source_common_group_fraction: 0.7
+  track_target_overlap: true
+  min_common_target_ip: 20
+  top_ingress_edges: 20
+  apply_bh_fdr: true
+  fdr_alpha: 0.05
+  main_figure_max_labels: 12
+inference:
+  ci_level: 0.95
+  fdr_alpha: 0.05
+  cluster_unit: prefix24
+  higher_level_block: event
+  report_effect_sizes_not_only_pvalues: true
+closure:
+  require_recovery_debt: true
+  require_path_adaptation: true
+  min_identified_recovery_models: 1
+  min_admissible_path_group_events: 1
+  require_weather_sensitivity_for_positive_chain: true
+  require_regional_falsification_for_positive_chain: true
+  require_archived_primary_sources_for_release: true
+figures:
+  formats:
+  - pdf
+  - svg
+  - png
+  png_dpi: 600
+  demo_png_dpi: 150
+  single_column_width_in: 3.5
+  double_column_width_in: 7.16
+  base_font_size_pt: 8.0
+  min_font_size_pt: 7.0
+  colorblind_safe: true
+  grayscale_redundancy: true
+  title_in_figure: false
+  write_alt_text: true
+  min_events_per_fingerprint_point: 2
+  main_admin1_max: 12
+  common_event_y_limit: 0.25
+  main_event_plot_pre_h: 24
+  main_event_plot_post_h: 72
+  font_env_var: URESIL_CJK_FONT
+paths:
+  run_root: runs
+  demo_run_root: demo_runs
+  data_derived: data_derived
+  results_tables: results/tables
+  results_figures: results/figures
+  model_objects: results/model_objects
+  logs: logs

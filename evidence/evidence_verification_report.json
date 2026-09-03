@@ -1,0 +1,33 @@
+{
+  "ok": false,
+  "checks": [
+    {
+      "source_id": "SRC_VOL_0724",
+      "public_or_dataset_snapshot_ok": false,
+      "telegram_json_required": false,
+      "telegram_json_ok": true,
+      "submission_ready": false
+    },
+    {
+      "source_id": "SRC_ZP_0724",
+      "public_or_dataset_snapshot_ok": true,
+      "telegram_json_required": true,
+      "telegram_json_ok": false,
+      "submission_ready": false
+    },
+    {
+      "source_id": "SRC_UHMC_HEAT",
+      "public_or_dataset_snapshot_ok": false,
+      "telegram_json_required": false,
+      "telegram_json_ok": true,
+      "submission_ready": false
+    },
+    {
+      "source_id": "SRC_ERA5_LAND",
+      "public_or_dataset_snapshot_ok": true,
+      "telegram_json_required": false,
+      "telegram_json_ok": true,
+      "submission_ready": true
+    }
+  ]
+}

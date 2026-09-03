@@ -1,0 +1,8 @@
+analysis_id,confirmatory_status,input_required,run_after_core_freeze,primary_question,stop_rule
+SENS_B2_MEMBER_STABILITY,predeclared_sensitivity,planned-outage sensor score parts,1,"Is planned-outage sensitivity a stable IP attribute across independent outage episodes?","Report all episode pairs; do not choose a threshold based on the result."
+SENS_CAL_LEAVE_CLUSTER_OUT,predeclared_sensitivity,planned validation event metrics,1,"Is overall B2-B1 gain dominated by one validation cluster (especially 28 July)?","Report full and leave-one-cluster-out estimates; no retuning."
+SENS_0724_OBLAST_FALSIFICATION,mechanism_falsification,oblast_execution_registry_v1.csv,1,"Does partial execution in Zaporizhzhia produce more loss than contemporaneous cancellation in Volyn?","Frozen 16:00-18:00 EEST window; no window extension."
+SENS_WEATHER_ADJUSTED,predeclared_sensitivity,weather_admin1_2h.parquet,1,"Does heat/weather explain the planned-outage calibration signal?","Report unadjusted, adjusted, and heat-cluster-excluded results; never choose the best one."
+SENS_PRE_EVENT_DEBT_PLACEBO,exploratory_robustness,group-event panel,1,"Is recovery debt more than mechanical persistence of a low baseline?","Residualize baseline; run shifted/pre-event placebo; label exploratory."
+SENS_PATH_FINAL,predeclared_sensitivity,traceroute path tables,1,"Are conditional forwarding-composition results robust to same-target and quality thresholds?","BH-FDR + same-target subset + direct-edge/GAP separation; no new path metrics."
+

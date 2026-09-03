@@ -1,0 +1,20 @@
+[
+  {
+    "source_id": "SRC_VOL_0724_REVERIFY",
+    "url": "https://energy.volyn.ua/pro-tovarystvo/novyny/gpv-gav-sgav/",
+    "error": "HTTPError: 403 Client Error: Forbidden for url: https://energy.volyn.ua/pro-tovarystvo/novyny/gpv-gav-sgav/"
+  },
+  {
+    "source_id": "SRC_UHMC_HEAT_REVERIFY",
+    "url": "https://www.meteo.gov.ua/ua/news/Spekotna-pohoda-v-Ukraini-8-15-lipnya",
+    "error": "ConnectTimeout: HTTPSConnectionPool(host='www.meteo.gov.ua', port=443): Max retries exceeded with url: /ua/news/Spekotna-pohoda-v-Ukraini-8-15-lipnya (Caused by ConnectTimeoutError(<urllib3.connection.HTTPSConnection object at 0x10b1abf40>, 'Connection to www.meteo.gov.ua timed out. (connect timeout=20)'))"
+  },
+  {
+    "source_id": "SRC_ZP_0724_CORRECTED_966",
+    "url": "https://t.me/s/Zaporizhzhyaoblenergo_news/966",
+    "status": "existing",
+    "bytes": 135576,
+    "sha256": "3df9b4810cb96bd55275fe0893e4a3fbc311350561440e2d5749ae81ec5caa87",
+    "snapshot_path": "evidence/public_snapshots/v2_4_4/SRC_ZP_0724_CORRECTED_966.html"
+  }
+]

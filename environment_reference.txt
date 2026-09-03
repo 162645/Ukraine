@@ -1,0 +1,19 @@
+Release: ukraine-resilience-experiment v2.4.0
+Generated: 2026-08-04T16:23:31Z
+Python: Python 3.13.5
+Platform: Linux-6.12.13-x86_64-with-glibc2.41
+
+Package versions in the sandbox used for compile/unit/demo checks.
+Remote-run-only packages marked MISSING were not available in this sandbox; install requirements.txt in Python 3.11/3.12 before a real run:
+numpy=2.3.5
+pandas=2.2.3
+scipy=1.17.0
+sklearn=1.8.0
+statsmodels=0.14.6
+pyarrow=MISSING (No module named 'pyarrow')
+matplotlib=3.10.8
+clickhouse_connect=MISSING (No module named 'clickhouse_connect')
+clickhouse_driver=MISSING (No module named 'clickhouse_driver')
+yaml=6.0.3
+joblib=1.5.3
+pytest=9.0.2

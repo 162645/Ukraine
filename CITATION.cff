@@ -1,0 +1,14 @@
+cff-version: 1.2.0
+message: "If you use this artifact, cite the accompanying paper and this software release."
+title: "Ukraine Energy Shock and Internet Resilience Reproducible Pipeline"
+version: "2.4.0"
+type: software
+authors:
+  - family-names: "Wei"
+    given-names: "Shilin"
+date-released: "2026-08-04"
+license: MIT
+abstract: >-
+  Reproducible analysis pipeline for scheduled-outage weak supervision,
+  held-out wartime energy-shock validation, ASN-Admin1 resilience,
+  recovery debt, and quality-gated AS/ASGeo forwarding adaptation.

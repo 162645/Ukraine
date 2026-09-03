@@ -1,0 +1,8 @@
+event_id,start_utc,end_utc,country_code,asn_list,role,notes
+E2024_0826_ATTACK,2024-08-25 00:00:00,2024-08-30 00:00:00,UA,,national_external_validation,"Country-level IODA/Cloudflare only; do not tune internal detector."
+E2024_0917_SUMY,2024-09-16 00:00:00,2024-09-20 00:00:00,UA,,blind_external_gap_check,"No requirement that external platform contain a signal; absence is missing/negative external evidence, not proof of no impact."
+E2024_1117_ATTACK,2024-11-16 00:00:00,2024-11-23 00:00:00,UA,,regional_external_validation,"Compare onset/recovery after internal results are frozen."
+E2024_1128_ATTACK,2024-11-27 00:00:00,2024-12-02 00:00:00,UA,6849|15895|13188,regional_asn_external_validation,"Country plus AS6849/AS15895/AS13188 queries."
+E2024_1213_ATTACK,2024-12-12 00:00:00,2024-12-16 00:00:00,UA,,stress_external_validation,"Country-level external validation."
+E2024_1225_ATTACK,2024-12-24 00:00:00,2024-12-28 00:00:00,UA,,holiday_stress_external_validation,"Treat web traffic as behavior-confounded; active probing preferred."
+

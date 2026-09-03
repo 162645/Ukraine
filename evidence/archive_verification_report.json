@@ -1,0 +1,62 @@
+{
+  "registry": "/Users/bytedance/WorkPlace/code_file/TTADK/else/ukraine/ukraine_resilience_experiment_v2_4/config/source_post_registry_v1.csv",
+  "ok": false,
+  "checks": [
+    {
+      "source_id": "SRC_LVIV_0706",
+      "path": "",
+      "exists": false,
+      "expected_sha256": "",
+      "actual_sha256": "",
+      "ok": false
+    },
+    {
+      "source_id": "SRC_VOL_0724",
+      "path": "",
+      "exists": false,
+      "expected_sha256": "",
+      "actual_sha256": "",
+      "ok": false
+    },
+    {
+      "source_id": "SRC_ZP_0724",
+      "path": "",
+      "exists": false,
+      "expected_sha256": "",
+      "actual_sha256": "",
+      "ok": false
+    },
+    {
+      "source_id": "SRC_VOL_0830",
+      "path": "",
+      "exists": false,
+      "expected_sha256": "",
+      "actual_sha256": "",
+      "ok": false
+    },
+    {
+      "source_id": "SRC_ZP_0830",
+      "path": "",
+      "exists": false,
+      "expected_sha256": "",
+      "actual_sha256": "",
+      "ok": false
+    },
+    {
+      "source_id": "SRC_SUMY_0830",
+      "path": "",
+      "exists": false,
+      "expected_sha256": "",
+      "actual_sha256": "",
+      "ok": false
+    },
+    {
+      "source_id": "SRC_UHMC_HEAT",
+      "path": "",
+      "exists": false,
+      "expected_sha256": "",
+      "actual_sha256": "",
+      "ok": false
+    }
+  ]
+}

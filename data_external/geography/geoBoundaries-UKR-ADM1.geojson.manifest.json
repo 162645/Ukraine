@@ -1,0 +1,10 @@
+{
+  "boundary_id": "UKR-ADM1-14850775",
+  "boundary_year_represented": "2017",
+  "bytes": 3919902,
+  "created_unix": 1786093359.1086059,
+  "feature_count": 27,
+  "path": "data_external/geography/geoBoundaries-UKR-ADM1.geojson",
+  "sha256": "b2f9f4ad2e9be5888523219c0bb46a24332ead16b46305409098048fd361a2d6",
+  "source_url": "https://github.com/wmgeolab/geoBoundaries/raw/9469f09/releaseData/gbOpen/UKR/ADM1/geoBoundaries-UKR-ADM1.geojson"
+}

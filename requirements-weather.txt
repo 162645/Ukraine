@@ -1,0 +1,9 @@
+# Optional, isolated preprocessing environment for ERA5-Land.
+cdsapi>=0.7.7,<1
+xarray>=2024.1
+dask[array]>=2024.1
+netCDF4>=1.6
+geopandas>=0.14
+shapely>=2.0
+pyproj>=3.6
+pyarrow>=12

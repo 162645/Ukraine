@@ -1,0 +1,12 @@
+{
+  "bytes": 18066,
+  "created_unix": 1786093375.8254552,
+  "end_utc": "2024-12-02 00:00:00",
+  "entity_code": "13188",
+  "entity_type": "asn",
+  "http_status": 200,
+  "path": "data_external/ioda/E2024_1128_ATTACK__asn_13188.json",
+  "request_url": "https://api.ioda.inetintel.cc.gatech.edu/v2/signals/raw/asn/13188?from=1732665600&until=1733097600",
+  "sha256": "9046f5e2cf61c8af2d0ef982a6cf06c850266e7bab0f1200b192c1af2effef8b",
+  "start_utc": "2024-11-27 00:00:00"
+}

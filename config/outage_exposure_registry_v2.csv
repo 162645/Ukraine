@@ -1,0 +1,20 @@
+﻿exposure_id,start_utc,end_utc,exposure_type,scope_type,affected_admin1,label_quality,source_ids,freeze_version
+X2024_0610,2024-06-10 13:00:00,2024-06-10 19:00:00,scheduled,national,ALL,L3,Ukrenergo_20240610,analysis_plan_v2_4
+X2024_0621,2024-06-20 21:00:00,2024-06-21 21:00:00,scheduled,national,ALL,L3,Ukrenergo_20240621,analysis_plan_v2_4
+X2024_0624,2024-06-23 21:00:00,2024-06-24 21:00:00,scheduled,national,ALL,L3,Ukrenergo_20240624,analysis_plan_v2_4
+X2024_0707_A,2024-07-06 21:00:00,2024-07-07 04:00:00,scheduled,national,ALL,L3,Ukrenergo_official_3012,analysis_plan_v2_4
+X2024_0707_B,2024-07-07 12:00:00,2024-07-07 21:00:00,scheduled,national,ALL,L3,Ukrenergo_official_3012,analysis_plan_v2_4
+X2024_0720_A,2024-07-19 21:00:00,2024-07-19 23:00:00,scheduled,national,ALL,L3,Ukrenergo_official_before3074,analysis_plan_v2_4
+X2024_0720_B,2024-07-20 02:00:00,2024-07-20 21:00:00,scheduled,national,ALL,L3,Ukrenergo_official_before3074,analysis_plan_v2_4
+X2024_0728,2024-07-28 15:00:00,2024-07-28 19:00:00,scheduled,national,ALL,L3,Ukrenergo_official_before3125,analysis_plan_v2_4
+X2024_0819,2024-08-19 14:00:00,2024-08-19 18:00:00,scheduled,national,ALL,L3,Ukrenergo_20240819,analysis_plan_v2_4
+X2024_0820,2024-08-20 13:00:00,2024-08-20 21:00:00,scheduled,national,ALL,L3,Ukrenergo_official_before3202,analysis_plan_v2_4
+X2024_0821,2024-08-21 12:30:00,2024-08-21 21:00:00,scheduled,national,ALL,L3,Ukrenergo_official_after3186,analysis_plan_v2_4
+X2024_0826,2024-08-26 05:10:00,2024-09-06 21:00:00,emergency,national,ALL,L2,UN_OHCHR_202408|Ukrenergo,analysis_plan_v2_4
+X2024_0917,2024-09-17 04:00:00,2024-09-18 22:00:00,emergency,regional,Sumy Oblast,L2,Reuters_20240917,analysis_plan_v2_4
+X2024_1117,2024-11-17 04:00:00,2024-11-21 00:00:00,emergency,regional,Volyn Oblast|Rivne Oblast|Lviv Oblast|Odesa Oblast|Dnipropetrovsk Oblast|Zaporizhzhia Oblast,L2,President_UA_20241117,analysis_plan_v2_4
+X2024_1128,2024-11-28 04:00:00,2024-12-01 23:59:59,emergency,regional,Lviv Oblast|Rivne Oblast|Volyn Oblast|Khmelnytskyi Oblast|Zhytomyr Oblast,L2,UN_Ukraine_20241128,analysis_plan_v2_4
+X2024_1209,2024-12-09 06:00:00,2024-12-09 17:00:00,scheduled,national,ALL,L3,Ukrenergo_20241209,analysis_plan_v2_4
+X2024_1213,2024-12-13 04:00:00,2024-12-15 22:00:00,emergency,national,ALL,L2,President_UA_20241213,analysis_plan_v2_4
+X2024_1225,2024-12-25 04:00:00,2024-12-28 22:00:00,emergency,national,ALL,L2,UN_Ukraine_20241225,analysis_plan_v2_4
+X2025_0115,2025-01-15 06:39:00,2025-01-17 22:00:00,preventive_emergency,regional,Kharkiv Oblast|Sumy Oblast|Poltava Oblast|Zaporizhzhia Oblast|Dnipropetrovsk Oblast|Kirovohrad Oblast,L2,Reuters_20250115,analysis_plan_v2_4

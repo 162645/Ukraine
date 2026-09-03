@@ -1,0 +1,19 @@
+{
+  "accessed_utc": "2026-08-05T09:30:00Z",
+  "derived_utc_window": {
+    "end": "2024-12-09 17:00:00Z",
+    "start": "2024-12-09 06:00:00Z"
+  },
+  "event_local_timezone": "Europe/Kyiv (EET, UTC+2)",
+  "facts": [
+    "Household hourly restrictions were scheduled 08:00-19:00 local.",
+    "One outage queue was applied.",
+    "Industrial/business capacity restrictions were 07:00-20:00 local.",
+    "Ukrenergo stated that restoration after the 28 November attack was still improving the system."
+  ],
+  "published": "2024-12-09 07:10 local",
+  "publisher": "Ukrinform, citing NPC Ukrenergo Facebook",
+  "research_use": "Held-out winter validation with explicit recovery-context flag; report separately from strict-clean validation.",
+  "title": "On 9 December household outages operated 08:00-19:00, one queue",
+  "url": "https://www.ukrinform.ua/rubric-economy/3935725-u-ponedilok-vidklucatimut-odnu-cergu-spozivaciv-z-0800-do-1900-ukrenergo.html"
+}

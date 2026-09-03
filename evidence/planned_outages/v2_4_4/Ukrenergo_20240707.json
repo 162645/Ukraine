@@ -1,0 +1,18 @@
+{
+  "accessed_utc": "2026-08-05T09:30:00Z",
+  "derived_utc_window": {
+    "end": "2024-07-07 21:00:00Z",
+    "start": "2024-07-07 12:00:00Z"
+  },
+  "event_local_timezone": "Europe/Kyiv (EEST, UTC+3)",
+  "facts": [
+    "On 2024-07-07, restrictions were not applied 07:00-15:00 local.",
+    "From 15:00-24:00 local, regional distributors applied two outage queues simultaneously.",
+    "Critical infrastructure was exempt."
+  ],
+  "published": "2024-07-07 12:20 local",
+  "publisher": "Ukrinform, citing NPC Ukrenergo Facebook",
+  "research_use": "Primary scheduled-outage training episode; exclude Sumy Oblast in sensitivity because a regional energy-infrastructure strike was reported on 2024-07-06.",
+  "title": "Power outage schedules on Sunday to be in effect until 3 p.m. - Ukrenergo",
+  "url": "https://www.ukrinform.net/rubric-economy/3882688-power-outage-schedules-on-sunday-to-be-in-effect-until-3-pm-ukrenergo.html"
+}

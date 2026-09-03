@@ -1,0 +1,9 @@
+check,required,ok,path
+weather_admin1_2h,True,False,data_derived/weather_admin1_2h.parquet
+adm1_geometry,True,True,data_external/geography/geoBoundaries-UKR-ADM1.geojson
+oblast_execution_registry,True,True,config/oblast_execution_registry_v1.csv
+weather_episode_registry,True,True,config/weather_episode_registry_v1.csv
+ioda_fetch_log,False,True,data_external/ioda/fetch_log.csv
+cloudflare_outages,False,False,data_external/cloudflare/outages.json
+evidence_verification,True,False,evidence/evidence_verification_report.json
+statsmodels_import,True,True,python environment

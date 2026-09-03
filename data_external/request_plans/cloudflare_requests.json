@@ -1,0 +1,24 @@
+[
+  {
+    "name": "outages",
+    "url": "https://api.cloudflare.com/client/v4/radar/annotations/outages",
+    "params": {
+      "location": "UA",
+      "dateStart": "2024-08-25T00:00:00Z",
+      "dateEnd": "2024-12-28T00:00:00Z",
+      "format": "JSON",
+      "limit": 1000
+    }
+  },
+  {
+    "name": "traffic_anomalies",
+    "url": "https://api.cloudflare.com/client/v4/radar/traffic_anomalies",
+    "params": {
+      "location": "UA",
+      "dateStart": "2024-08-25T00:00:00Z",
+      "dateEnd": "2024-12-28T00:00:00Z",
+      "format": "JSON",
+      "limit": 1000
+    }
+  }
+]

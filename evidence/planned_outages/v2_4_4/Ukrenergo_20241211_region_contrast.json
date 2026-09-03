@@ -1,0 +1,20 @@
+{
+  "accessed_utc": "2026-08-05T12:00:00Z",
+  "derived_utc_window": {
+    "start": "2024-12-11 05:00:00Z",
+    "end": "2024-12-11 20:00:00Z"
+  },
+  "event_local_timezone": "Europe/Kyiv (EET, UTC+2)",
+  "facts": [
+    "National household schedule: 07:00-08:00 one queue, 08:00-20:00 two queues, 20:00-22:00 one queue.",
+    "Volynoblenergo records cancellation for all queues from 07:00 until further instruction.",
+    "Odesa is excluded for weather-related outages.",
+    "Lviv and Ivano-Frankivsk are not controls without equivalent operator-level archived records."
+  ],
+  "published": "2024-12-10/11",
+  "publisher": "NPC Ukrenergo and Volynoblenergo official records",
+  "research_use": "Recovery-context regional validation; Volyn is the only currently verified same-day cancelled control.",
+  "title": "11 December national schedule and Volyn cancellation",
+  "url": "https://energy.volyn.ua/pro-tovarystvo/novyny/gpv-gav-sgav/",
+  "immutable_status": "public link verified; local byte snapshot required for submission"
+}

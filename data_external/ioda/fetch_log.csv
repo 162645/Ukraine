@@ -1,0 +1,10 @@
+event_id,entity_type,entity_code,start_utc,end_utc,status,request_url,output,error
+E2024_0826_ATTACK,country,UA,2024-08-25 00:00:00,2024-08-30 00:00:00,ok,https://api.ioda.inetintel.cc.gatech.edu/v2/signals/raw/country/UA?from=1724544000&until=1724976000,data_external/ioda/E2024_0826_ATTACK__country_UA.json,
+E2024_0917_SUMY,country,UA,2024-09-16 00:00:00,2024-09-20 00:00:00,ok,https://api.ioda.inetintel.cc.gatech.edu/v2/signals/raw/country/UA?from=1726444800&until=1726790400,data_external/ioda/E2024_0917_SUMY__country_UA.json,
+E2024_1117_ATTACK,country,UA,2024-11-16 00:00:00,2024-11-23 00:00:00,ok,https://api.ioda.inetintel.cc.gatech.edu/v2/signals/raw/country/UA?from=1731715200&until=1732320000,data_external/ioda/E2024_1117_ATTACK__country_UA.json,
+E2024_1128_ATTACK,country,UA,2024-11-27 00:00:00,2024-12-02 00:00:00,ok,https://api.ioda.inetintel.cc.gatech.edu/v2/signals/raw/country/UA?from=1732665600&until=1733097600,data_external/ioda/E2024_1128_ATTACK__country_UA.json,
+E2024_1128_ATTACK,asn,6849,2024-11-27 00:00:00,2024-12-02 00:00:00,ok,https://api.ioda.inetintel.cc.gatech.edu/v2/signals/raw/asn/6849?from=1732665600&until=1733097600,data_external/ioda/E2024_1128_ATTACK__asn_6849.json,
+E2024_1128_ATTACK,asn,15895,2024-11-27 00:00:00,2024-12-02 00:00:00,ok,https://api.ioda.inetintel.cc.gatech.edu/v2/signals/raw/asn/15895?from=1732665600&until=1733097600,data_external/ioda/E2024_1128_ATTACK__asn_15895.json,
+E2024_1128_ATTACK,asn,13188,2024-11-27 00:00:00,2024-12-02 00:00:00,ok,https://api.ioda.inetintel.cc.gatech.edu/v2/signals/raw/asn/13188?from=1732665600&until=1733097600,data_external/ioda/E2024_1128_ATTACK__asn_13188.json,
+E2024_1213_ATTACK,country,UA,2024-12-12 00:00:00,2024-12-16 00:00:00,ok,https://api.ioda.inetintel.cc.gatech.edu/v2/signals/raw/country/UA?from=1733961600&until=1734307200,data_external/ioda/E2024_1213_ATTACK__country_UA.json,
+E2024_1225_ATTACK,country,UA,2024-12-24 00:00:00,2024-12-28 00:00:00,ok,https://api.ioda.inetintel.cc.gatech.edu/v2/signals/raw/country/UA?from=1734998400&until=1735344000,data_external/ioda/E2024_1225_ATTACK__country_UA.json,

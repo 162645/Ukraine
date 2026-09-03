@@ -1,0 +1,55 @@
+{
+  "generated_at_utc": "2026-08-07T09:40:10.607531+00:00",
+  "capture_class": "live_web_research_verification_not_canonical_archive",
+  "sources": [
+    {
+      "source_id": "Volynoblenergo_20240724",
+      "url": "https://energy.volyn.ua/pro-tovarystvo/novyny/gpv-gav-sgav/",
+      "verified_facts": [
+        "On 24 July 2024 the operator first recorded cancellation to 18:00 and later cancellation to 20:00.",
+        "A separate update cancelled Queue 6 from 20:00 to 22:00."
+      ],
+      "web_reference": "turn233669view0 lines 1403-1417"
+    },
+    {
+      "source_id": "Volynoblenergo_20241211",
+      "url": "https://energy.volyn.ua/pro-tovarystvo/novyny/gpv-gav-sgav/",
+      "verified_facts": [
+        "For 11 December, all queues were cancelled from 07:00 local until separate instruction.",
+        "The preceding schedule had restrictions 07:00-22:00."
+      ],
+      "web_reference": "turn233669view1 lines 252-262"
+    },
+    {
+      "source_id": "UkrHMC_20240705_heat",
+      "url": "https://www.meteo.gov.ua/ua/news/Spekotna-pohoda-v-Ukraini-8-15-lipnya",
+      "verified_facts": [
+        "Strong heat 11-15 July: 35-38 C in most oblasts.",
+        "Parts of south/east plus Poltava, Dnipropetrovsk and Kirovohrad: locally 40-41 C.",
+        "Official text warns of complications for utilities and energy enterprises."
+      ],
+      "web_reference": "turn444704view0 lines 18-26"
+    },
+    {
+      "source_id": "Zaporizhzhyaoblenergo_20240724_msg966",
+      "url": "https://t.me/s/Zaporizhzhyaoblenergo_news/966",
+      "verified_facts": [
+        "24 July schedule cancelled until 16:00.",
+        "Queue 1 shortened from 14:00-18:00 to 16:00-18:00.",
+        "Same public page reports a short technical interruption affecting part of Queue 4."
+      ],
+      "web_reference": "turn787197search1"
+    },
+    {
+      "source_id": "ERA5_Land_hourly",
+      "url": "https://cds.climate.copernicus.eu/datasets/reanalysis-era5-land",
+      "verified_facts": [
+        "Hourly temporal resolution.",
+        "0.1 x 0.1 degree regular CDS grid; native resolution about 9 km.",
+        "1950 to present.",
+        "CDS API requires a personal access token and acceptance of dataset terms before download."
+      ],
+      "web_reference": "turn444704search0; turn370073search0"
+    }
+  ]
+}
