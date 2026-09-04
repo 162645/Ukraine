@@ -95,8 +95,15 @@ def validate_schedule_registry(cfg: Config) -> list[str]:
     grouping = ["event_id"]
     if is_v3:
         # Regional v3 rows may legitimately overlap national rows.  Only
-        # reject overlaps within the same administrative/operator scope.
-        grouping = [c for c in ("event_id", "admin1", "operator", "scope_type", "queue_id") if c in schedule]
+        # reject overlaps within the same administrative/operator/category
+        # scope. Historical/superseded and cancelled rows are retained for
+        # provenance but cannot make the active registry invalid.
+        active = schedule[~schedule.get("status_norm", "").isin({"superseded", "cancelled"})]
+        if "record_role" in active:
+            active = active[active["record_role"].isin({"planned_or_final_dispatch", "final_dispatch"})]
+        schedule = active
+        grouping = [c for c in ("event_id", "admin1", "operator", "scope_type", "queue_id",
+                                "consumer_class", "restriction_type") if c in schedule]
     for _, group in schedule.sort_values("start_utc").groupby(grouping, dropna=False):
         prev_end = None
         for _, row in group.iterrows():
