@@ -427,7 +427,7 @@ def fig_registered_timeline(cfg, tables: Path, lang: str):
     """Show treatment schedules and held-out attacks without implying IP-level outages."""
     tx = TEXT[lang]
     events = pd.read_csv(cfg.root / "config/event_registry_v2.csv")
-    schedules = pd.read_csv(cfg.root / "config/planned_outage_schedule_v1.csv")
+    schedules = pd.read_csv(cfg.resource_path("schedule_registry"))
     attacks = read(tables, "exp_b_main_results.csv").sort_values("anchor_utc").copy()
     manuscript_style(cfg, lang)
     fig = plt.figure(figsize=MAIN_PAGE)

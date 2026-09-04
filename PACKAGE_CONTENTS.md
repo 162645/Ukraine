@@ -14,7 +14,8 @@
 
 - `config/experiment_v2.yaml` — analysis plan `analysis_plan_v2_4_1_segmented_schedule`.
 - `config/event_registry_v2.csv` — attack, outage and external network clocks plus independent power/network regions.
-- `config/planned_outage_schedule_v1.csv` — verified final-version queue segments, local/UTC clocks, episode clusters and source URLs.
+- `config/planned_outage_schedule_v3_0.csv` — expanded national, oblast and operator-service-area schedule registry with planned/actual timestamps, status, scope, source and impact notes.
+- `config/execution_events_v3_0.csv` — normalized execution and emergency-override events linked to schedule records.
 - `config/outage_exposure_registry_v2.csv` — interval-level official outage exposure.
 - `config/admin1_aliases_v1.csv` — canonical country/Admin1 aliases.
 - `config/mapping_manifest_v2.frozen.json` — frozen target and hop mapping snapshot contract.

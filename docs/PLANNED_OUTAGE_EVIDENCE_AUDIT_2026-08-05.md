@@ -8,7 +8,7 @@ It still cannot guarantee a positive result. Its value is that a second negative
 
 ## Source audit
 
-Accepted primary sources are posts on the official Ukrenergo Telegram channel. The frozen schedule contains the final version found during the audit, not a media paraphrase. The following were directly verified:
+Accepted primary sources are posts on the official Ukrenergo Telegram channel. The v3.0 registry contains the final version found during the audit, not a media paraphrase. The following were directly verified:
 
 | Date | Verified final local schedule | Role | Source |
 |---|---|---|---|
@@ -20,7 +20,7 @@ Accepted primary sources are posts on the official Ukrenergo Telegram channel. T
 | 21 Aug | final update: 00:00–15:30 q0; 15:30–18:00 q1; 18:00–22:00 q2; 22:00–24:00 q1 | update robustness | https://t.me/s/Ukrenergo?after=3186 |
 | 9 Dec | 08:00–19:00 q1 | winter transport only | https://t.me/s/ukrenergo?before=3546 |
 
-All July/August local times are EEST (UTC+3); 9 December is EET (UTC+2). The canonical machine-readable values are in `config/planned_outage_schedule_v1.csv`.
+All July/August local times are EEST (UTC+3); 9 December is EET (UTC+2). The canonical machine-readable values are in `config/planned_outage_schedule_v3_0.csv`, with execution overlays in `config/execution_events_v3_0.csv`.
 
 The 25 July, 7 December, 11 December regional exception, and 12 December update claims from the supplied text were not promoted into the frozen primary registry in this revision. Some are plausible and portions can be found in official archives, but the supplied material did not provide a stable final-version URL plus complete update history sufficient for the same provenance standard. They remain candidates for a later source appendix, not labels used to decide B2.
 

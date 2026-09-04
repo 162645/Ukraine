@@ -118,8 +118,18 @@ class Events:
     def schedule_cycles(self, grid: pd.DataFrame, row: pd.Series, *, positive: bool,
                         end_before=None) -> list[int]:
         event_id = str(row.get("event_id", ""))
-        queue_mask = self.schedule["queue_count"].gt(0) if positive else self.schedule["queue_count"].eq(0)
-        segments = self.schedule[(self.schedule["event_id"].eq(event_id)) & queue_mask].copy()
+        schedule = self.schedule
+        # The v3 registry contains execution/emergency overlays in the same
+        # file.  Core calibration uses planned/final dispatch rows only; the
+        # overlays are consumed by the regional/state-machine analyses.
+        if "record_role" in schedule:
+            planned = schedule["record_role"].isin({"planned_or_final_dispatch", "final_dispatch"})
+            schedule = schedule[planned]
+        if "schedule_positive" in schedule:
+            queue_mask = schedule["schedule_positive"] if positive else ~schedule["schedule_positive"]
+        else:
+            queue_mask = schedule["queue_count"].gt(0) if positive else schedule["queue_count"].eq(0)
+        segments = schedule[(schedule["event_id"].eq(event_id)) & queue_mask].copy()
         if end_before is not None:
             cutoff = pd.to_datetime(end_before, utc=True, errors="coerce")
             segments = segments[segments["end_utc"].le(cutoff)]
@@ -157,7 +167,10 @@ class Events:
 
     def schedule_cycle_dose(self, grid: pd.DataFrame, row: pd.Series) -> pd.DataFrame:
         """Time-weighted queue count for every cycle overlapping a registered day."""
-        segments = self.schedule[self.schedule["event_id"].eq(str(row.get("event_id", "")))]
+        schedule = self.schedule
+        if "record_role" in schedule:
+            schedule = schedule[schedule["record_role"].isin({"planned_or_final_dispatch", "final_dispatch"})]
+        segments = schedule[schedule["event_id"].eq(str(row.get("event_id", "")))]
         if segments.empty:
             return pd.DataFrame(columns=["cycle_id", "queue_count"])
         mt = pd.to_datetime(grid["measure_time"], utc=True)
@@ -171,7 +184,12 @@ class Events:
             left = mt.where(mt > start, start)
             right = cycle_end.where(cycle_end < end, end)
             overlap = ((right - left).dt.total_seconds() / 3600).clip(lower=0)
-            weighted += overlap * float(seg["queue_count"])
+            q = float(seg["queue_count"])
+            if "queue_count_known" in seg and not int(seg["queue_count_known"]):
+                # Unknown queue intensity is usable as a binary exposure but
+                # must not be presented as a measured dose.
+                q = 1.0 if bool(seg.get("schedule_positive", False)) else 0.0
+            weighted += overlap * q
             covered += overlap
         out = grid.loc[covered.gt(0), ["cycle_id"]].copy()
         out["queue_count"] = weighted.loc[covered.gt(0)].div(covered.loc[covered.gt(0)]).to_numpy()

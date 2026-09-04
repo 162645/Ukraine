@@ -1,9 +1,9 @@
 freeze:
-  plan_version: analysis_plan_v2_4_3_prerun_frozen
+  plan_version: analysis_plan_v3_0_outage_registry
   frozen: true
   measurement_view: AWS_Frankfurt_to_Ukraine
   event_registry: event_registry_v2.csv
-  schedule_registry: planned_outage_schedule_v1.csv
+  schedule_registry: planned_outage_schedule_v3_0.csv
   oblast_execution_registry: oblast_execution_registry_v1.csv
   weather_episode_registry: weather_episode_registry_v1.csv
   source_post_registry: source_post_registry_v1.csv

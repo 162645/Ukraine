@@ -71,7 +71,11 @@ def validate_schedule_registry(cfg: Config) -> list[str]:
         errors.append("duplicate segment_id")
     known = set(events["event_id"].astype(str))
     unknown = sorted(set(schedule["event_id"].astype(str)) - known)
-    if unknown:
+    # v3.0 contains a date-complete regional/evidence registry.  Rows that do
+    # not correspond to the frozen v2 event registry remain available for the
+    # regional overlay, but are not silently promoted to core event claims.
+    is_v3 = "schema_version" in schedule and schedule["schema_version"].astype(str).str.startswith("v3").any()
+    if unknown and not is_v3:
         errors.append(f"schedule references unknown events: {unknown}")
     if schedule["independence_cluster"].astype(str).str.strip().eq("").any():
         errors.append("blank independence_cluster")
@@ -83,13 +87,21 @@ def validate_schedule_registry(cfg: Config) -> list[str]:
         errors.append("queue_count outside [0,6]")
     if schedule["final_version"].ne(1).any():
         errors.append("non-final schedule version present in frozen registry")
-    if (~schedule["source_url"].astype(str).str.startswith(("https://t.me/s/Ukrenergo", "https://t.me/s/ukrenergo"))).any():
+    if is_v3:
+        if (~schedule["source_url"].astype(str).str.startswith("https://")).any():
+            errors.append("v3 schedule contains non-HTTPS source URL")
+    elif (~schedule["source_url"].astype(str).str.startswith(("https://t.me/s/Ukrenergo", "https://t.me/s/ukrenergo"))).any():
         errors.append("non-official schedule source URL")
-    for event_id, group in schedule.sort_values("start_utc").groupby("event_id"):
+    grouping = ["event_id"]
+    if is_v3:
+        # Regional v3 rows may legitimately overlap national rows.  Only
+        # reject overlaps within the same administrative/operator scope.
+        grouping = [c for c in ("event_id", "admin1", "operator", "scope_type", "queue_id") if c in schedule]
+    for _, group in schedule.sort_values("start_utc").groupby(grouping, dropna=False):
         prev_end = None
         for _, row in group.iterrows():
             if prev_end is not None and row["start_utc"] < prev_end:
-                errors.append(f"{event_id}: overlapping final schedule segments")
+                errors.append("overlapping final schedule segments within one scope")
                 break
             prev_end = row["end_utc"]
     return errors

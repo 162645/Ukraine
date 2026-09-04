@@ -1,0 +1,47 @@
+Metric,Value
+Current version,v3.0
+Previous materialized version,v2.5
+v2.6 status,Audit round existed but was not separately materialized; incorporated into v2.7.
+Schedule rows,427
+Execution events,111
+Key events,40
+Methodology rules,12
+Gap-register rows,20
+Sumy execution events,51
+Odesa execution events,23
+Kharkiv execution events,19
+Dnipropetrovsk execution events,18
+Exact-effective events,51
+Interval-censored events,1
+Reported-at events,35
+Cancelled-by events,13
+New v2.7 execution rows,13
+New v2.7 key events,2
+Duplicate execution IDs,0
+Duplicate key-event IDs,0
+Invalid schedule→execution links,0
+Invalid schedule→key-event links,0
+Major v2.7 addition,4–5 June 2024 Kharkiv/Sumy/Odesa minute-level emergency override chains formally added.
+Versioning rule going forward,Every material data/schema/audit change increments the artifact version immediately.
+New v2.8 schedule rows,1
+New v2.8 execution rows,8
+New v2.8 key events,1
+New v2.8 methodology rules,2
+New v2.8 gap rows,4
+Major v2.8 addition,"Odesa/Dnipropetrovsk emergency override closure, Kharkiv/Odesa recovery states, PEEM CEK multi-DSO correction, and regional execution-overlay requirement."
+Critical remaining limitation,Operator journals/SCADA are still missing; reported-at timestamps must not be treated as physical switching times.
+New v2.9 schedule rows,8
+New v2.9 execution rows,22
+New v2.9 key events,4
+New v2.9 methodology rules,4
+New v2.9 gap rows,3
+Critical correction 1,"24-Jul old national q0 00:00–16:00 is excluded; target regions use 09:30–16:00, while DTEK Odesa uses 08:25–18:00."
+Critical correction 2,"Sumy 17-Sep 04:00 UTC is a residual-outage snapshot after 02:26/03:11 partial restoration, not outage onset."
+Critical correction 3,Sumy 22-Oct has two GAV waves separated by exact 16:00 GPV return; 21-Nov recovery is interrupted by a new emergency re-entry.
+Sheet structure,Unchanged: schedule / execution_events / key_events / methodology / gap_register / multi_intel_audit / version_history / summary.
+v3.0 design principle,Preserve raw evidence; add normalized machine-readable contract fields. No new sheets.
+v3.0 execution contract,episode_id + episode_seq + mechanism_norm + action_norm + state_before_norm + state_after_norm
+v3.0 evidence contract,event/time/scope confidence separated from source_origin/source_channel/source_grade/evidence_rank
+schedule.actual_* policy,Deprecated as physical truth; retained only for backward compatibility and tagged via actual_time_semantics.
+Recommended code join key,timestamp/cycle + admin1 + operator/service-area + episode_id
+Recommended precedence,execution evidence > operator final schedule/update > national schedule; evidence_rank breaks ties

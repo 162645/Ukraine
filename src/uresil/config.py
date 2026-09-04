@@ -164,6 +164,56 @@ class Config:
         import pandas as pd
         p = self.resource_path("schedule_registry")
         df = pd.read_csv(p, dtype=str, keep_default_na=False)
+        # v3.0 is a wider, evidence-preserving registry exported from the
+        # workbook.  Normalize its names to the v2 analysis contract while
+        # retaining all precision/provenance columns for regional analyses.
+        if "segment_id" not in df and "record_id" in df:
+            df["segment_id"] = df["record_id"]
+        if "local_start" not in df and "planned_start_local" in df:
+            df["local_start"] = df["planned_start_local"]
+        if "local_end" not in df and "planned_end_local" in df:
+            df["local_end"] = df["planned_end_local"]
+        if "start_utc" not in df and "planned_start_utc" in df:
+            df["start_utc"] = df["planned_start_utc"]
+        if "end_utc" not in df and "planned_end_utc" in df:
+            df["end_utc"] = df["planned_end_utc"]
+        if "source_authority" not in df and "source_origin" in df:
+            df["source_authority"] = df["source_origin"]
+        if "verified_at_utc" not in df and "announced_at_utc" in df:
+            df["verified_at_utc"] = df["announced_at_utc"]
+        if "final_version" not in df:
+            df["final_version"] = 1
+        if "publication_eligible" not in df:
+            df["publication_eligible"] = df.get("analysis_eligible", 0)
+        if "independence_cluster" not in df:
+            # Preserve known v2 event clusters; date-level fallback keeps new
+            # v3 rows identifiable without claiming cross-day independence.
+            date_to_cluster = {
+                "2024-07-07": "july_training",
+                "2024-07-20": "july_training",
+                "2024-07-28": "july_holdout",
+                "2024-08-19": "august_heat",
+                "2024-08-20": "august_heat",
+                "2024-08-21": "august_heat",
+                "2024-12-09": "winter_attack_recovery",
+            }
+            df["independence_cluster"] = df.get("event_date", "").map(
+                lambda x: date_to_cluster.get(str(x), str(x)))
+        if "event_id" not in df:
+            date_to_event = {
+                "2024-06-10": "E2024_0610_PLANNED",
+                "2024-06-21": "E2024_0621_PLANNED",
+                "2024-06-24": "E2024_0624_PLANNED",
+                "2024-07-07": "E2024_0707_PLANNED",
+                "2024-07-20": "E2024_0720_PLANNED",
+                "2024-07-28": "E2024_0728_PLANNED",
+                "2024-08-19": "E2024_0819_PLANNED",
+                "2024-08-20": "E2024_0820_PLANNED",
+                "2024-08-21": "E2024_0821_PLANNED",
+                "2024-12-09": "E2024_1209_PLANNED",
+            }
+            df["event_id"] = df.get("event_date", "").map(
+                lambda x: date_to_event.get(str(x), f"E{str(x).replace('-', '')}_V3"))
         for c in ("start_utc", "end_utc", "verified_at_utc"):
             if c in df:
                 df[c] = pd.to_datetime(df[c].replace("", None), utc=True, errors="coerce")
@@ -180,9 +230,17 @@ class Config:
                     ts = pd.Timestamp(value)
                     parsed.append(ts.tz_localize(zone or "Europe/Kyiv") if ts.tzinfo is None else ts)
                 df[c] = parsed
-        for c in ("queue_count", "final_version", "publication_eligible"):
+        if "queue_count" in df:
+            df["queue_count_known"] = df["queue_count"].astype(str).str.strip().ne("").astype("int8")
+        for c in ("queue_count", "final_version", "publication_eligible", "analysis_eligible"):
             if c in df:
                 df[c] = pd.to_numeric(df[c], errors="coerce").fillna(0)
+        if "status_norm" in df:
+            df["schedule_positive"] = df["status_norm"].isin(
+                {"confirmed", "updated", "extended", "shortened", "partial", "dispatch_confirmed"}
+            )
+        else:
+            df["schedule_positive"] = pd.to_numeric(df.get("queue_count"), errors="coerce").gt(0)
         return df
 
     def _load_aux_registry(self, freeze_key: str, datetime_columns: tuple[str, ...]):
