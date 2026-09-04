@@ -25,10 +25,10 @@ database:
     mapping: net_measure.UKRAINE__ip_mapping_cache
 runtime:
   max_memory_gb: 32
-  ch_max_memory_usage_frac: 0.5
-  ch_external_group_by_frac: 0.25
-  ch_external_sort_frac: 0.25
-  ch_max_threads: 8
+  ch_max_memory_usage_frac: 0.75
+  ch_external_group_by_frac: 0.375
+  ch_external_sort_frac: 0.375
+  ch_max_threads: 16
   fetch_block_rows: 200000
   prefix_batch: 500
   panel_batch_days: 2
