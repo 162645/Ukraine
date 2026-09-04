@@ -325,6 +325,18 @@ def run(cfg: Config) -> dict:
         x["event_id"]=event_id;rows.append(x)
     val=pd.concat(rows,ignore_index=True).merge(num,on=["event_id","cycle_id","target_admin1","method"],how="left")
     val["responders"]=val.responders.fillna(0)
+    # Apply the v3 geographic scope at the endpoint's mapped admin1.  A
+    # national segment covers all states; oblast/city/service-area segments
+    # only label the explicitly affected admin1 values.  Previously the
+    # cycle label was broadcast to every state in the event window.
+    state_keys = val[["event_id", "target_admin1"]].drop_duplicates()
+    state_keys["state_schedule_exposed"] = [
+        int(ev.schedule_applies_to_admin1(eid, a))
+        for eid, a in state_keys[["event_id", "target_admin1"]].itertuples(index=False, name=None)
+    ]
+    val = val.merge(state_keys, on=["event_id", "target_admin1"], how="left", validate="many_to_one")
+    val["label"] = (pd.to_numeric(val["label"], errors="coerce").fillna(0).astype(int)
+                     * val["state_schedule_exposed"].astype(int))
     val["reach"]=val.responders/val.sensor_n.replace(0,np.nan)
     val["normalized_reach"]=val.responders/val.expected_response_n.replace(0,np.nan)
     val["score"]=1-val.normalized_reach

@@ -155,6 +155,40 @@ class Events:
             return self.schedule_cycles(grid, row, positive=True)
         return self.cycles_in_window(grid, row.get("outage_start_utc"), row.get("outage_end_utc"))
 
+    @staticmethod
+    def _admin1_tokens(value: object) -> set[str]:
+        """Normalize the registry's pipe-separated affected-admin1 field."""
+        if value is None or (isinstance(value, float) and pd.isna(value)):
+            return set()
+        return {str(x).strip() for x in str(value).replace(";", "|").split("|") if str(x).strip()}
+
+    def schedule_applies_to_admin1(self, event_id: str, admin1: object) -> bool:
+        """Return whether a positive v3 schedule segment covers one mapped state.
+
+        National rows apply to every Ukrainian admin1.  Oblast/city/operator
+        rows are restricted to their explicit ``admin1`` or ``affected_admin1``
+        tokens; this prevents a state-local outage from becoming a national label.
+        """
+        target = str(admin1 or "").strip()
+        if not target:
+            return False
+        schedule = self.schedule
+        if "record_role" in schedule:
+            schedule = schedule[schedule["record_role"].isin({"planned_or_final_dispatch", "final_dispatch"})]
+        if "schedule_positive" in schedule:
+            schedule = schedule[schedule["schedule_positive"].astype(bool)]
+        d = schedule[schedule["event_id"].eq(str(event_id))]
+        if d.empty:
+            return False
+        for _, seg in d.iterrows():
+            scope = str(seg.get("scope_type_norm", seg.get("scope_type", "national"))).strip().lower()
+            if scope == "national":
+                return True
+            tokens = self._admin1_tokens(seg.get("affected_admin1")) | self._admin1_tokens(seg.get("admin1"))
+            if target in tokens:
+                return True
+        return False
+
     def schedule_event_metadata(self, event_id: str) -> dict:
         d = self.schedule[self.schedule["event_id"].eq(str(event_id))]
         if d.empty:
