@@ -18,6 +18,65 @@ ACTIVE = {"activated", "activated_from", "actual_start_report", "schedule_shifte
 CANCELLED = {"cancelled", "cancelled_from"}
 
 
+def build_v3_regional_event_registry(schedule: pd.DataFrame,
+                                     valid_admin1: set[str] | None = None) -> pd.DataFrame:
+    """Convert the unified v3 registry into oblast-date exposure intervals.
+
+    National dispatch rows are deliberately excluded from regional sensor
+    discovery: they do not identify which oblast was treated.  Only explicit
+    oblast/city/operator-service-area/multi-oblast rows can train B2_region.
+    """
+    d = schedule.copy()
+    if "record_role" in d:
+        d = d[d["record_role"].isin({"planned_or_final_dispatch", "final_dispatch",
+                                      "execution_override"})]
+    if "analysis_eligible" in d:
+        d = d[pd.to_numeric(d["analysis_eligible"], errors="coerce").fillna(0).eq(1)]
+    if "schedule_positive" in d:
+        d = d[d["schedule_positive"].astype(bool)]
+    valid = set(valid_admin1 or [])
+    rows = []
+    for _, r in d.iterrows():
+        scope = str(r.get("scope_type_norm", r.get("scope_type", ""))).strip().lower()
+        if scope == "national":
+            continue
+        tokens = set()
+        for field in ("admin1", "affected_admin1"):
+            value = str(r.get(field, "") or "")
+            tokens.update(x.strip() for x in value.replace(";", "|").split("|") if x.strip())
+        if valid:
+            tokens &= valid
+        tokens -= {"ALL", "MULTIPLE_UNSPECIFIED", "multiple unspecified oblasts"}
+        start = pd.to_datetime(r.get("start_utc"), utc=True, errors="coerce")
+        end = pd.to_datetime(r.get("end_utc"), utc=True, errors="coerce")
+        if pd.isna(start) or pd.isna(end) or end <= start:
+            continue
+        q = pd.to_numeric(pd.Series([r.get("queue_count")]), errors="coerce").iloc[0]
+        fraction = min(max(float(q) / 6.0, 0.0), 1.0) if pd.notna(q) and q > 0 else np.nan
+        execution = str(r.get("record_role", "")) == "execution_override"
+        for admin1 in sorted(tokens):
+            rows.append({
+                "regional_event_id": f"{admin1}|{r.get('event_date')}|{r.get('record_id')}",
+                "date": str(r.get("event_date")), "target_admin1": admin1,
+                "operator": r.get("operator"), "start_utc": start, "end_utc": end,
+                "queue": str(r.get("queue_id", "") or ""),
+                "regional_state": "restriction_active" if execution else "published_queue_schedule",
+                "region_binary_usable": int(execution and scope in {"oblast", "city"}),
+                "estimated_exposed_fraction": fraction,
+                "evidence_level": r.get("source_grade"),
+                "execution_interpretation": r.get("actual_time_semantics"),
+                "source_url": r.get("source_url"),
+                "source_kind": "execution_override" if execution else "v3_schedule",
+                "ip_level_power_truth": 0,
+                "record_id": r.get("record_id"),
+            })
+    if not rows:
+        return pd.DataFrame(columns=["regional_event_id", "date", "target_admin1",
+                                     "start_utc", "end_utc", "regional_state"])
+    return pd.DataFrame(rows).sort_values(
+        ["target_admin1", "date", "start_utc", "regional_event_id"]).reset_index(drop=True)
+
+
 def build_regional_event_registry(updates: pd.DataFrame,
                                   queue_schedule: pd.DataFrame | None = None) -> pd.DataFrame:
     """Normalize official rows into region-event exposure evidence.

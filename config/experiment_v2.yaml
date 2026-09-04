@@ -248,18 +248,12 @@ calibration:
 regional_calibration:
   enabled: true
   required_for_v25_closure: true
-  # Volyn has six summer regional windows; Khmelnytskyi has six published queue
-  # schedules with conflict masks. Lviv remains single-event validation only.
+  # v3.0 discovery is performed independently inside every explicitly mapped
+  # admin1; the nationwide pool remains an exploratory comparator only.
   primary_regions:
-  - Volyn Oblast
-  - Khmelnytskyi Oblast
+  - AUTO
   core_dates:
-  - '2024-07-07'
-  - '2024-07-20'
-  - '2024-07-28'
-  - '2024-08-19'
-  - '2024-08-20'
-  - '2024-08-21'
+  - AUTO
   min_train_events: 3
   min_holdout_events_for_estimability: 3
   min_positive_event_fraction: 0.6666666667

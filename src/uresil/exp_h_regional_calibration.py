@@ -16,6 +16,7 @@ from .exp_a_calibration import _prefix_batches, score_endpoints
 from .label_precision import package_root
 from .progress import get_logger, pbar, step
 from .regional_calibration import (apply_conflict_masks, build_regional_event_registry,
+                                   build_v3_regional_event_registry,
                                    leave_one_event_out_splits, membership_stability,
                                    regional_event_cycles, select_repeated_sensitive)
 
@@ -36,7 +37,11 @@ def _matched_controls(grid, positives, events: Events, cfg: Config) -> pd.DataFr
     return pd.concat(rows, ignore_index=True).drop_duplicates("cycle_id") if rows else pd.DataFrame()
 
 
-def _load_inputs(cfg: Config):
+def _load_inputs(cfg: Config, valid_admin1: set[str] | None = None):
+    if str(cfg.freeze.get("schedule_registry", "")).endswith("v3_0.csv"):
+        path = cfg.resource_path("schedule_registry")
+        return build_v3_regional_event_registry(
+            cfg.load_schedule_registry(), valid_admin1=valid_admin1), [path]
     norm = package_root(cfg.root) / "normalized"
     updates = pd.read_csv(norm / "oblast_execution_updates_official.csv")
     queues = pd.read_csv(norm / "khmelnytskyi_published_queue_schedule.csv")
@@ -152,15 +157,22 @@ def run(cfg: Config) -> dict:
     if not bool(rcfg.get("enabled",True)):
         return {"status":"warning","outputs":[],"reason":"regional calibration disabled"}
     logger=get_logger(cfg.out_dir("logs")); dd=cfg.out_dir("data_derived"); rt=cfg.out_dir("results_tables")
-    registry,input_paths=_load_inputs(cfg)
     grid=Events(cfg).build_cycle_grid(pd.read_parquet(dd/"cycle_quality.parquet")); ev=Events(cfg)
+    targets=pd.read_parquet(dd/"target_ip_universe.parquet")
+    valid_admin1=set(targets.loc[targets.regional_eligible.eq(1), "target_admin1"].dropna().astype(str))
+    registry,input_paths=_load_inputs(cfg, valid_admin1=valid_admin1)
+    configured_regions=[str(x) for x in rcfg.get("primary_regions", [])]
+    auto_regions=not configured_regions or configured_regions == ["AUTO"]
+    regions=sorted(registry.target_admin1.dropna().astype(str).unique()) if auto_regions else configured_regions
+    configured_dates=[str(x) for x in rcfg.get("core_dates", [])]
+    auto_dates=not configured_dates or configured_dates == ["AUTO"]
+    dates=sorted(registry.date.dropna().astype(str).unique()) if auto_dates else configured_dates
     buffer_values=sorted(set(int(x) for x in rcfg.get(
         "transition_buffer_sensitivity_minutes", [rcfg["transition_buffer_minutes"]])))
-    cycles_by_buffer={b:regional_event_cycles(registry,grid,regions=list(rcfg["primary_regions"]),
-        dates=[str(x) for x in rcfg["core_dates"]],cycle_hours=float(cfg.study["expected_cycle_interval_hours"]),
+    cycles_by_buffer={b:regional_event_cycles(registry,grid,regions=regions,
+        dates=dates,cycle_hours=float(cfg.study["expected_cycle_interval_hours"]),
         min_overlap_fraction=float(cfg.calibration["min_cycle_schedule_overlap_fraction"]),
         transition_buffer_minutes=b) for b in buffer_values}
-    targets=pd.read_parquet(dd/"target_ip_universe.parquet")
     base=dd/"regional_calibration"; score_dir=base/"ip_sensor_scores_by_training_event"; resp_dir=base/"responses_by_event"
     score_dir.mkdir(parents=True,exist_ok=True); resp_dir.mkdir(parents=True,exist_ok=True)
     artifacts={}; audits=[]

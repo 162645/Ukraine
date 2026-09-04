@@ -1,6 +1,7 @@
 import pandas as pd
 
 from uresil.regional_calibration import (build_regional_event_registry,
+                                         build_v3_regional_event_registry,
                                          membership_stability,
                                          select_repeated_sensitive)
 
@@ -30,3 +31,21 @@ def test_repeated_selector_rejects_one_event_winner():
     assert got.loc["y", "in_B2_region"]
     stability = membership_stability(d)
     assert len(stability) == 3
+
+
+def test_v3_regional_registry_excludes_national_and_expands_explicit_admin1():
+    d = pd.DataFrame([
+        {"record_id": "n", "event_date": "2024-07-01", "admin1": "ALL",
+         "scope_type_norm": "national", "record_role": "planned_or_final_dispatch",
+         "analysis_eligible": 1, "schedule_positive": True,
+         "start_utc": "2024-07-01T10:00Z", "end_utc": "2024-07-01T12:00Z"},
+        {"record_id": "o", "event_date": "2024-07-01", "admin1": "Sumy Oblast",
+         "affected_admin1": "Sumy Oblast", "scope_type_norm": "oblast",
+         "record_role": "planned_or_final_dispatch", "analysis_eligible": 1,
+         "schedule_positive": True, "queue_count": 2,
+         "start_utc": "2024-07-01T10:00Z", "end_utc": "2024-07-01T12:00Z"},
+    ])
+    got = build_v3_regional_event_registry(d, {"Sumy Oblast", "Kyiv City"})
+    assert got.target_admin1.tolist() == ["Sumy Oblast"]
+    assert got.iloc[0].regional_state == "published_queue_schedule"
+    assert got.iloc[0].estimated_exposed_fraction == 2 / 6
