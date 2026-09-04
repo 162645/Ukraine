@@ -236,9 +236,15 @@ class Config:
             if c in df:
                 df[c] = pd.to_numeric(df[c], errors="coerce").fillna(0)
         if "status_norm" in df:
-            df["schedule_positive"] = df["status_norm"].isin(
+            status_positive = df["status_norm"].isin(
                 {"confirmed", "updated", "extended", "shortened", "partial", "dispatch_confirmed"}
             )
+            # A reported queue_count=0 is an explicit no-restriction window;
+            # only fall back to the normalized status when intensity is unknown.
+            df["schedule_positive"] = status_positive
+            if "queue_count_known" in df:
+                known = df["queue_count_known"].eq(1)
+                df.loc[known, "schedule_positive"] = df.loc[known, "queue_count"].gt(0)
         else:
             df["schedule_positive"] = pd.to_numeric(df.get("queue_count"), errors="coerce").gt(0)
         return df
