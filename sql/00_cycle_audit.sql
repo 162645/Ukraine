@@ -5,8 +5,11 @@ ping_agg AS (
     intDiv(toUnixTimestamp(measure_time), {cycle_seconds}) AS cycle_id,
     toDateTime(intDiv(toUnixTimestamp(measure_time), {cycle_seconds}) * {cycle_seconds}, 'UTC') AS measure_time,
     count() AS ping_rows,
-    uniqExact(prefix24) AS ping_prefixes,
-    uniqExact(dst_ip) AS ping_unique_ips
+    -- Cycle-level cardinalities are diagnostics only.  The combined sketch
+    -- keeps the audit below the bounded readonly profile; endpoint-level
+    -- scoring and denominators remain exact in their dedicated queries.
+    uniqCombined64(prefix24) AS ping_prefixes,
+    uniqCombined64(dst_ip) AS ping_unique_ips
   FROM {ping}
   WHERE measure_time >= toDateTime64('{start}', 6, 'UTC')
     AND measure_time <= toDateTime64('{end}', 6, 'UTC')
@@ -17,7 +20,7 @@ trace_agg AS (
   SELECT
     intDiv(toUnixTimestamp(measure_time), {cycle_seconds}) AS cycle_id,
     count() AS trace_rows,
-    uniqExact(prefix24) AS trace_prefixes,
+    uniqCombined64(prefix24) AS trace_prefixes,
     avg(reached_target) AS trace_reached_rate,
     sum(star_hop_count) / greatest(sum(hop_count), 1) AS trace_star_rate,
     avg(positionCaseInsensitive(as_path_text, 'AS0') > 0) AS as0_path_share,

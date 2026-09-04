@@ -119,7 +119,10 @@ def get_logger(log_dir: str | Path | None = None) -> logging.Logger:
 def pbar(iterable=None, *, total=None, desc="", unit="it", leave=True):
     """统一进度条封装(自动适配终端 / notebook)。"""
     return tqdm(iterable, total=total, desc=desc, unit=unit, leave=leave,
-                dynamic_ncols=True, smoothing=0.1)
+                dynamic_ncols=True, smoothing=0.1,
+                # SSH/non-interactive runners may close the progress stream;
+                # log milestones remain available in run.log.
+                disable=not sys.stderr.isatty())
 
 
 @contextmanager
