@@ -260,8 +260,12 @@ def run(cfg: Config) -> dict:
                 # audit.  Do not parse ASGeo path text or ISP fields and do not rely on stale
                 # denormalised labels in the response table.
                 d=d.drop(columns=[c for c in ["target_asn_raw","target_country_raw","target_admin1_raw"] if c in d], errors="ignore")
-                d=d.merge(targets[["dst_ip","prefix24","target_asn","target_country","target_admin1",
-                                     "regional_eligible","country_only_admin1","group","analysis_unit_id"]],
+                target_cols=[c for c in ("dst_ip","prefix24","target_asn","target_country","target_admin1",
+                                         "target_city","target_geo_latitude","target_geo_longitude",
+                                         "target_geo_precision","target_as_name","target_isp_domain",
+                                         "network_stratum","regional_eligible","country_only_admin1",
+                                         "group","analysis_unit_id") if c in targets]
+                d=d.merge(targets[target_cols],
                           on=["dst_ip","prefix24"], how="inner", validate="many_to_one")
                 d=d[(d.target_country=="Ukraine")&(d.target_asn>0)]
                 d["n_normal"]=len(normal);d["n_planned"]=len(planned)

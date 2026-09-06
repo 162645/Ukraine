@@ -170,4 +170,6 @@ runs/<run_id>/results/tables/closure_report.json
 - AS/ASGeo results are conditional on the Frankfurt vantage point, target reachability, sampled destinations, and direct observed hops.
 - Negative calibration, repeatability, or prediction results are reported rather than tuned away.
 
-See `docs/ANALYSIS_PLAN_V2_4.md`, `docs/RUNBOOK_V2_4.md`, and `docs/RESULTS_CONTRACT_V2_4.md`.
+For the current v4 outage registry and regional power-operator/ISP design, start with
+`docs/ANALYSIS_PLAN_V4_REGIONAL_OPERATOR_ISP.md`. The original contracts remain in
+`docs/ANALYSIS_PLAN_V2_4.md`, `docs/RUNBOOK_V2_4.md`, and `docs/RESULTS_CONTRACT_V2_4.md`.

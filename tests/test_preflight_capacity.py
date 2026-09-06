@@ -13,5 +13,8 @@ def test_current_registry_counts_events_and_independent_clusters_separately():
                         schedule["publication_eligible"].eq(1)]["independence_cluster"].nunique()
     assert registered == 5
     assert required == 2
-    assert clusters == 2
+    # The v4 merged registry contributes four distinct date-level clusters to
+    # the five frozen validation-event IDs; the regional analysis applies its
+    # stricter operator-specific episode grouping separately.
+    assert clusters == 4
     assert clusters >= int(cfg.calibration["min_publication_validation_clusters"])

@@ -121,7 +121,10 @@ def _baseline_rows(panel: pd.DataFrame) -> pd.DataFrame:
 def _covariates(panel: pd.DataFrame) -> pd.DataFrame:
     panel = panel[~panel["target_admin1"].isin(INVALID_ADMIN1)].copy()
     unit = _unit_col(panel); pre = _baseline_rows(panel)
-    cov = (pre.groupby([unit, "prefix24", "target_asn", "target_admin1"])
+    identity = [unit, "prefix24", "target_asn", "target_admin1"]
+    if "network_stratum" in pre:
+        identity.append("network_stratum")
+    cov = (pre.groupby(identity)
            .agg(pre_mean=("normalized_reach", "mean"), pre_sd=("normalized_reach", "std"),
                 expected_ip_n=("expected_ip_n", "median"), rtt_median=("rtt_median", "median"))
            .reset_index())
@@ -134,16 +137,23 @@ def _covariates(panel: pd.DataFrame) -> pd.DataFrame:
 
 
 def match_prefixes(panel: pd.DataFrame, affected: list[str], cfg: Config) -> pd.DataFrame:
-    """Exact-ASN nearest-neighbour matching using only the clean baseline."""
+    """Exact network-stratum/ASN matching using only the clean baseline."""
     cov = _covariates(panel)
     if cov.empty:
         return pd.DataFrame()
     treated = cov[cov["target_admin1"].isin(affected)].copy()
     controls = cov[~cov["target_admin1"].isin(affected)].copy()
     rows, features = [], list(cfg.matching["covariates"]); unit = _unit_col(panel)
-    for asn, tg in treated.groupby("target_asn"):
-        cg = controls[controls["target_asn"].eq(asn)]; fallback = False
-        if cg.empty and cfg.matching.get("fallback_cross_asn", False):
+    exact_network = bool(cfg.matching.get("exact_same_network_stratum", False)) and "network_stratum" in cov
+    strata = ["target_asn", "network_stratum"] if exact_network else ["target_asn"]
+    for stratum, tg in treated.groupby(strata):
+        stratum = stratum if isinstance(stratum, tuple) else (stratum,)
+        asn = stratum[0]
+        cg = controls[controls["target_asn"].eq(asn)]
+        if exact_network:
+            cg = cg[cg["network_stratum"].eq(stratum[1])]
+        fallback = False
+        if cg.empty and not exact_network and cfg.matching.get("fallback_cross_asn", False):
             cg, fallback = controls, True
         if cg.empty:
             continue
@@ -163,6 +173,9 @@ def match_prefixes(panel: pd.DataFrame, affected: list[str], cfg: Config) -> pd.
                    "treated_asn": int(a.target_asn), "treated_admin1": a.target_admin1,
                    "control_asn": int(b.target_asn), "control_admin1": b.target_admin1,
                    "distance": float(di), "fallback_cross_asn": int(fallback)}
+            if exact_network:
+                row["treated_network_stratum"] = a.network_stratum
+                row["control_network_stratum"] = b.network_stratum
             for f in features:
                 row[f"treated_{f}"] = float(a[f]); row[f"control_{f}"] = float(b[f])
             rows.append(row)

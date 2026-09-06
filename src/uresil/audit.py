@@ -231,6 +231,12 @@ def run_target_universe(cfg: Config, ch: CHClient) -> tuple[pd.DataFrame, pd.Dat
     canon = _canonicalizer(cfg)
     ipu = canon.canonicalize_frame(ipu, "target_country_raw", "target_admin1_raw")
     ipu["target_asn"] = pd.to_numeric(ipu["target_asn_raw"], errors="coerce").fillna(0).astype("int64")
+    ipu["target_city"] = ipu.get("target_city_raw", "").fillna("").astype(str).str.strip()
+    ipu["target_as_name"] = ipu.get("target_as_name", "").fillna("").astype(str).str.strip()
+    ipu["target_isp_domain"] = (ipu.get("target_isp_domain", "").fillna("")
+                                  .astype(str).str.strip().str.lower())
+    ipu["target_geo_latitude"] = pd.to_numeric(ipu.get("target_geo_latitude"), errors="coerce")
+    ipu["target_geo_longitude"] = pd.to_numeric(ipu.get("target_geo_longitude"), errors="coerce")
     ipu["valid_target_country"] = ipu["target_country"].eq("Ukraine").astype("int8")
     ipu["valid_target_asn"] = ipu["target_asn"].gt(0).astype("int8")
     ipu["valid_target_admin1"] = [int(canon.valid_target(c, a))
@@ -238,10 +244,30 @@ def run_target_universe(cfg: Config, ch: CHClient) -> tuple[pd.DataFrame, pd.Dat
     ipu["country_only_admin1"] = ipu["target_admin1"].eq(canon.COUNTRY_ONLY_UA).astype("int8")
     ipu["national_eligible"] = (ipu["valid_target_country"].eq(1) & ipu["valid_target_asn"].eq(1)).astype("int8")
     ipu["regional_eligible"] = (ipu["national_eligible"].eq(1) & ipu["valid_target_admin1"].eq(1)).astype("int8")
+    has_city = ipu["target_city"].ne("")
+    kyiv_city = ipu["target_admin1"].eq("Kyiv City")
+    has_coord = ipu["target_geo_latitude"].notna() & ipu["target_geo_longitude"].notna()
+    ipu["target_geo_precision"] = np.select(
+        [ipu["regional_eligible"].eq(1) & has_city,
+         ipu["regional_eligible"].eq(1) & kyiv_city & has_coord,
+         ipu["regional_eligible"].eq(1) & has_coord,
+         ipu["regional_eligible"].eq(1)],
+        ["city_centroid", "city_municipality_centroid", "admin1_centroid", "admin1_label_only"],
+        default="country_or_unknown")
+    ipu["network_stratum"] = ipu["target_isp_domain"].where(
+        ipu["target_isp_domain"].ne(""), "ASN:" + ipu["target_asn"].astype(str))
     ipu["group"] = (ipu["target_asn"].astype(str) + "|" + ipu["target_country"].astype(str)
                     + "|" + ipu["target_admin1"].astype(str))
     ipu["analysis_unit_id"] = ipu["prefix24"].astype(str) + "|" + ipu["group"]
     ipu.to_parquet(cfg.out_dir("data_derived") / "target_ip_universe.parquet", index=False, compression="zstd")
+
+    (ipu.groupby(["target_admin1", "target_geo_precision"], dropna=False)
+        .agg(ip_n=("dst_ip", "nunique"), prefix_n=("prefix24", "nunique"),
+             isp_n=("target_isp_domain", lambda x: x[x.ne("")].nunique()),
+             asn_n=("target_asn", "nunique"))
+        .reset_index().sort_values(["target_admin1", "ip_n"], ascending=[True, False])
+        .to_csv(cfg.out_dir("results_tables") / "target_geo_isp_coverage.csv",
+                index=False, encoding="utf-8-sig"))
 
     prefix = _aggregate_prefixes(ipu, cfg)
     prefix.to_parquet(cfg.out_dir("data_derived") / "target_universe.parquet", index=False, compression="zstd")

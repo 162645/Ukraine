@@ -18,11 +18,12 @@ def test_disjoint_schedule_uses_overlap_not_bounding_interval():
     grid = pd.DataFrame({"cycle_id": range(len(times)), "measure_time": times,
                          "is_complete": 1})
     selected = set(ev.outage_cycles(grid, row))
-    # 04:00-12:00 UTC is an explicitly registered zero-queue gap and must not
+    # In v4, 04:00-14:00 UTC is an explicitly registered no-restriction gap and must not
     # become treated merely because it lies inside the day's bounding interval.
     assert 1 not in selected
     assert 2 not in selected
     assert 3 not in selected
     assert 4 not in selected
+    assert 5 not in selected
     assert 0 in selected
-    assert 5 in selected
+    assert 6 in selected

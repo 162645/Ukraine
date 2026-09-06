@@ -8,6 +8,8 @@ prefix's responders from being duplicated across groups.
 from __future__ import annotations
 
 import glob
+from functools import lru_cache
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -65,7 +67,53 @@ def score_parts(cfg: Config) -> list[str]:
     return sorted(glob.glob(str(cfg.out_dir("data_derived") / "ip_sensor_scores_parts" / "part_*.parquet")))
 
 
+@lru_cache(maxsize=4)
+def _regional_membership_cached(path_text: str, primary_buffer: int,
+                                min_available: int) -> pd.DataFrame:
+    path = Path(path_text)
+    if not _readable_parquet(path):
+        return pd.DataFrame()
+    d = pd.read_parquet(path)
+    d = d[pd.to_numeric(d["transition_buffer_minutes"], errors="coerce").eq(primary_buffer)].copy()
+    d["regional_validated_candidate"] = (
+        d["in_B2_region"].astype(bool) &
+        pd.to_numeric(d["available_event_n"], errors="coerce").fillna(0).ge(min_available)
+    )
+    return (d.groupby(["target_admin1", "dst_ip"], as_index=False)
+            .agg(regional_validated_candidate=("regional_validated_candidate", "any"),
+                 regional_available_episode_n=("available_event_n", "max"),
+                 regional_positive_event_fraction=("positive_event_fraction", "max")))
+
+
+def _regional_membership(cfg: Config) -> pd.DataFrame:
+    if not bool(cfg.regional_calibration.get("use_regional_sensor_downstream", False)):
+        return pd.DataFrame()
+    path = cfg.out_dir("data_derived") / "regional_calibration" / "regional_sensor_membership.parquet"
+    primary_buffer = int(cfg.regional_calibration["transition_buffer_minutes"])
+    min_available = int(cfg.regional_calibration["min_train_events"]) + 1
+    return _regional_membership_cached(str(path), primary_buffer, min_available)
+
+
+def _read_sensor_part(cfg: Config, path: str, columns: list[str]) -> pd.DataFrame:
+    d = pd.read_parquet(path, columns=columns)
+    membership = _regional_membership(cfg)
+    if membership.empty:
+        return d
+    d = d.merge(membership, on=["target_admin1", "dst_ip"], how="left", validate="many_to_one")
+    d["in_B2_global"] = d["in_B2"].astype(bool)
+    d["in_B2"] = (d["in_B1"].astype(bool) &
+                   d["regional_validated_candidate"].fillna(False).astype(bool))
+    return d
+
+
 def choose_primary_method(cfg: Config) -> str:
+    if bool(cfg.regional_calibration.get("use_regional_sensor_downstream", False)):
+        p = cfg.out_dir("results_tables") / "regional_calibration_gate.json"
+        if p.exists() and p.stat().st_size:
+            import json
+            gate = json.loads(p.read_text(encoding="utf-8"))
+            return "B2" if int(gate.get("regional_calibration_success", 0)) == 1 else "B1"
+        return "B1"
     p = cfg.out_dir("results_tables") / "exp_a_summary.csv"
     if p.exists() and p.stat().st_size:
         d = pd.read_csv(p)
@@ -76,23 +124,27 @@ def choose_primary_method(cfg: Config) -> str:
 
 def build_denominators(cfg: Config, parts: list[str]) -> pd.DataFrame:
     rows = []
-    cols = ["prefix24", "target_asn", "target_country", "target_admin1", "pN", "in_B1", "in_B2"]
+    cols = ["dst_ip", "prefix24", "target_asn", "target_country", "target_admin1",
+            "network_stratum", "pN", "in_B1", "in_B2"]
     for p in pbar(parts, desc="sensor denominators", unit="part"):
-        d = pd.read_parquet(p, columns=cols)
+        d = _read_sensor_part(cfg, p, cols)
+        group_cols = ["prefix24", "target_asn", "target_country", "target_admin1",
+                      "network_stratum"]
         for m in METHODS:
             z = d[d[f"in_{m}"]]
             if z.empty:
                 continue
-            rows.append(z.groupby(["prefix24", "target_asn", "target_country", "target_admin1"])
+            rows.append(z.groupby(group_cols)
                         .agg(sensor_n=("pN", "size"), expected_response_n=("pN", "sum"))
                         .reset_index().assign(method=m))
     if not rows:
         return pd.DataFrame()
     out = (pd.concat(rows, ignore_index=True)
-           .groupby(["prefix24", "target_asn", "target_country", "target_admin1", "method"])
+           .groupby(["prefix24", "target_asn", "target_country", "target_admin1",
+                     "network_stratum", "method"])
            .agg(sensor_n=("sensor_n", "sum"), expected_response_n=("expected_response_n", "sum"))
            .reset_index())
-    out["group"] = (out.target_asn.astype(str) + "|" + out.target_country.astype(str)
+    out["group"] = (out.network_stratum.astype(str) + "|" + out.target_asn.astype(str) + "|" + out.target_country.astype(str)
                     + "|" + out.target_admin1.astype(str))
     out["analysis_unit_id"] = out.prefix24.astype(str) + "|" + out.group
     out["regional_eligible"] = (~out.target_admin1.isin(
@@ -106,13 +158,14 @@ def _event_responses(cfg: Config, ch: CHClient, event: pd.Series, parts: list[st
     lo, hi = ev.event_window(event)
     h = int(cfg.study["expected_cycle_interval_hours"])
     num = []
-    cols = ["dst_ip", "prefix24", "target_asn", "target_country", "target_admin1", "in_B1", "in_B2"]
+    cols = ["dst_ip", "prefix24", "target_asn", "target_country", "target_admin1",
+            "network_stratum", "in_B1", "in_B2"]
     for p in pbar(parts, desc=f"sensor responses {event['event_id']}", unit="part"):
-        sensors = pd.read_parquet(p, columns=cols)
+        sensors = _read_sensor_part(cfg, p, cols)
         sensors = sensors[sensors.in_B1 | sensors.in_B2]
         if sensors.empty:
             continue
-        sensors["group"] = (sensors.target_asn.astype(str) + "|" + sensors.target_country.astype(str)
+        sensors["group"] = (sensors.network_stratum.astype(str) + "|" + sensors.target_asn.astype(str) + "|" + sensors.target_country.astype(str)
                             + "|" + sensors.target_admin1.astype(str))
         sensors["analysis_unit_id"] = sensors.prefix24.astype(str) + "|" + sensors.group
         prefixes = sensors.prefix24.drop_duplicates().astype(str).tolist()
@@ -121,7 +174,7 @@ def _event_responses(cfg: Config, ch: CHClient, event: pd.Series, parts: list[st
         if r.empty:
             continue
         r = r.merge(sensors, on=["dst_ip", "prefix24"], how="inner")
-        key = ["cycle_id", "prefix24", "target_asn", "target_country", "target_admin1",
+        key = ["cycle_id", "prefix24", "target_asn", "target_country", "target_admin1", "network_stratum",
                "group", "analysis_unit_id"]
         for m in METHODS:
             z = r[r[f"in_{m}"]]
@@ -131,7 +184,7 @@ def _event_responses(cfg: Config, ch: CHClient, event: pd.Series, parts: list[st
                            .reset_index().assign(method=m))
     if not num:
         return pd.DataFrame(columns=["cycle_id", "analysis_unit_id", "method", "responders", "rtt_median"])
-    key = ["cycle_id", "prefix24", "target_asn", "target_country", "target_admin1",
+    key = ["cycle_id", "prefix24", "target_asn", "target_country", "target_admin1", "network_stratum",
            "group", "analysis_unit_id", "method"]
     return (pd.concat(num, ignore_index=True).groupby(key)
             .agg(responders=("responders", "sum"), rtt_median=("rtt_median", "median")).reset_index())
@@ -142,7 +195,8 @@ def build_event_panel(cfg: Config, event: pd.Series, denom: pd.DataFrame,
     denom = denom.copy()
     numer = numer.copy()
     if "group" not in denom:
-        denom["group"] = (denom.target_asn.astype(str) + "|" + denom.target_country.astype(str)
+        network = denom["network_stratum"].astype(str) + "|" if "network_stratum" in denom else ""
+        denom["group"] = (network + denom.target_asn.astype(str) + "|" + denom.target_country.astype(str)
                           + "|" + denom.target_admin1.astype(str))
     if "analysis_unit_id" not in denom:
         denom["analysis_unit_id"] = denom.prefix24.astype(str) + "|" + denom.group.astype(str)
@@ -234,8 +288,10 @@ def run(cfg: Config) -> dict:
                                  written=len(written), cached=progress.cached)
         progress.finish(written=len(written), cached=progress.cached, failed=progress.failed)
         primary = choose_primary_method(cfg)
+        regional_overlay = not _regional_membership(cfg).empty
         pd.DataFrame([{
             "primary_sensor_method": primary,
+            "b2_sensor_source": "regional_episode_crossfit" if regional_overlay else "national_schedule",
             "calibration_positive": int(primary == "B2"),
             "n_B1_sensor": int(denom.loc[denom.method.eq("B1"), "sensor_n"].sum()),
             "n_B2_sensor": int(denom.loc[denom.method.eq("B2"), "sensor_n"].sum()),

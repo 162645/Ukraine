@@ -214,7 +214,9 @@ class Config:
             }
             df["event_id"] = df.get("event_date", "").map(
                 lambda x: date_to_event.get(str(x), f"E{str(x).replace('-', '')}_V3"))
-        for c in ("start_utc", "end_utc", "verified_at_utc"):
+        for c in ("start_utc", "end_utc", "verified_at_utc",
+                  "planned_start_utc", "planned_end_utc",
+                  "actual_start_utc", "actual_end_utc"):
             if c in df:
                 df[c] = pd.to_datetime(df[c].replace("", None), utc=True, errors="coerce")
         # Local operator timestamps are civil times, not UTC.  Preserve their
@@ -232,10 +234,21 @@ class Config:
                 df[c] = parsed
         if "queue_count" in df:
             df["queue_count_known"] = df["queue_count"].astype(str).str.strip().ne("").astype("int8")
-        for c in ("queue_count", "final_version", "publication_eligible", "analysis_eligible"):
+        for c in ("queue_count", "final_version", "publication_eligible", "analysis_eligible",
+                  "experiment_use_v40", "interval_valid", "confound_free"):
             if c in df:
                 df[c] = pd.to_numeric(df[c], errors="coerce").fillna(0)
-        if "status_norm" in df:
+        if "schedule_positive" in df:
+            explicit = df["schedule_positive"].astype(str).str.strip().str.lower()
+            df["schedule_positive"] = explicit.isin({"1", "true", "yes"})
+        elif "restriction_type" in df:
+            cancelled = df["restriction_type"].isin(
+                {"no_restriction", "cancelled_hourly_window"})
+            if "status_norm" in df:
+                cancelled |= df["status_norm"].astype(str).str.contains(
+                    "cancel", case=False, regex=False)
+            df["schedule_positive"] = df["restriction_type"].eq("hourly_schedule") & ~cancelled
+        elif "status_norm" in df:
             status_positive = df["status_norm"].isin(
                 {"confirmed", "updated", "extended", "shortened", "partial", "dispatch_confirmed"}
             )

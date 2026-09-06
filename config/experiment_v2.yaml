@@ -1,9 +1,9 @@
 freeze:
-  plan_version: analysis_plan_v3_0_outage_registry
+  plan_version: analysis_plan_v4_0_regional_operator_isp
   frozen: true
   measurement_view: AWS_Frankfurt_to_Ukraine
   event_registry: event_registry_v2.csv
-  schedule_registry: planned_outage_schedule_v3_0.csv
+  schedule_registry: planned_outage_schedule_v4_0.csv
   oblast_execution_registry: oblast_execution_registry_v1.csv
   weather_episode_registry: weather_episode_registry_v1.csv
   source_post_registry: source_post_registry_v1.csv
@@ -248,21 +248,38 @@ calibration:
 regional_calibration:
   enabled: true
   required_for_v25_closure: true
-  # v3.0 discovery is performed independently inside every explicitly mapped
-  # admin1; the nationwide pool remains an exploratory comparator only.
+  # v4.0 discovery is performed independently inside every explicitly mapped
+  # admin1 x power-operator exposure unit; the nationwide pool is a baseline only.
   primary_regions:
   - AUTO
   core_dates:
   - AUTO
-  min_train_events: 3
+  # Current active-measurement overlap contains at most three independent
+  # episodes per operator-region unit. Two train + one held-out episode is the
+  # estimable exploratory design; the publication gate below still requires
+  # replication in at least two regions and never treats this as IP-level truth.
+  min_train_events: 2
   min_holdout_events_for_estimability: 3
+  min_regions_for_success: 2
+  min_regional_b2_ip: 200
   min_positive_event_fraction: 0.6666666667
+  episode_gap_days: 3
+  use_regional_sensor_downstream: true
+  primary_exposure_precision:
+  - L2_admin2_named_ip_city_unresolved
+  - L2_operator_admin1_proxy
+  - L2_admin1
+  network_control:
+    key: isp_domain_fallback_asn
+    min_same_network_control_ip: 100
+    exclude_contemporaneous_network_wide_drop: true
   transition_buffer_minutes: 30
   transition_buffer_sensitivity_minutes:
   - 30
   - 60
 matching:
   exact_same_asn: true
+  exact_same_network_stratum: true
   max_controls_per_treated: 1
   allow_control_reuse: true
   fallback_cross_asn: false

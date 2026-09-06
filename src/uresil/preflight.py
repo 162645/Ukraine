@@ -74,31 +74,41 @@ def validate_schedule_registry(cfg: Config) -> list[str]:
     # v3.0 contains a date-complete regional/evidence registry.  Rows that do
     # not correspond to the frozen v2 event registry remain available for the
     # regional overlay, but are not silently promoted to core event claims.
-    is_v3 = "schema_version" in schedule and schedule["schema_version"].astype(str).str.startswith("v3").any()
-    if unknown and not is_v3:
+    version = schedule.get("schema_version", pd.Series("", index=schedule.index)).astype(str)
+    is_wide_registry = version.str.startswith(("v3", "v4")).any()
+    if unknown and not is_wide_registry:
         errors.append(f"schedule references unknown events: {unknown}")
     if schedule["independence_cluster"].astype(str).str.strip().eq("").any():
         errors.append("blank independence_cluster")
     if (~schedule["timezone_name"].eq("Europe/Kyiv")).any():
         errors.append("all schedule rows must use Europe/Kyiv")
-    if (schedule["end_utc"] <= schedule["start_utc"]).any():
+    eligible = schedule
+    if "analysis_eligible" in eligible:
+        eligible = eligible[pd.to_numeric(eligible["analysis_eligible"], errors="coerce").fillna(0).eq(1)]
+    if (eligible["start_utc"].isna() | eligible["end_utc"].isna() |
+            eligible["end_utc"].le(eligible["start_utc"])).any():
         errors.append("non-positive schedule interval")
-    if (~schedule["queue_count"].between(0, 6)).any():
+    queue = pd.to_numeric(eligible["queue_count"], errors="coerce")
+    if queue.dropna().lt(0).any() or queue.dropna().gt(6).any():
         errors.append("queue_count outside [0,6]")
-    if schedule["final_version"].ne(1).any():
+    if eligible["final_version"].ne(1).any():
         errors.append("non-final schedule version present in frozen registry")
-    if is_v3:
-        if (~schedule["source_url"].astype(str).str.startswith("https://")).any():
-            errors.append("v3 schedule contains non-HTTPS source URL")
+    if is_wide_registry:
+        sources = eligible["source_url"].astype(str)
+        if "verified_source_url" in eligible:
+            sources = sources.where(sources.str.startswith("https://"),
+                                    eligible["verified_source_url"].astype(str))
+        if (~sources.str.startswith("https://")).any():
+            errors.append("wide schedule registry contains no HTTPS evidence URL")
     elif (~schedule["source_url"].astype(str).str.startswith(("https://t.me/s/Ukrenergo", "https://t.me/s/ukrenergo"))).any():
         errors.append("non-official schedule source URL")
     grouping = ["event_id"]
-    if is_v3:
+    if is_wide_registry:
         # Regional v3 rows may legitimately overlap national rows.  Only
         # reject overlaps within the same administrative/operator/category
         # scope. Historical/superseded and cancelled rows are retained for
         # provenance but cannot make the active registry invalid.
-        active = schedule[~schedule.get("status_norm", "").isin({"superseded", "cancelled"})]
+        active = eligible[~eligible.get("status_norm", "").isin({"superseded", "cancelled"})]
         if "record_role" in active:
             active = active[active["record_role"].isin({"planned_or_final_dispatch", "final_dispatch"})]
         schedule = active
