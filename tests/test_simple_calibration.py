@@ -5,7 +5,8 @@ import pytest
 
 from uresil.events import slot_of
 from uresil.simple_calibration import (_overlap_cycle_ids, aggregate_sensors, b1_score_parts,
-                                       build_calibration_events, score_event_rows)
+                                       build_calibration_events, build_final_calibration_events, score_event_rows)
+from uresil.config import load_config
 
 
 def _cfg():
@@ -135,9 +136,18 @@ def test_aggregate_freezes_mean_sensitivity_and_within_state_tertiles():
          "p_normal": .9, "p_outage": .8, "drop": .1, "recovery": .1, "rtt_estimable": True, "is_event_usable": True},
     ])
     got = aggregate_sensors(candidates).set_index("dst_ip")
-    assert bool(got.loc["x", "is_power_sensitive"])
     assert got.loc["x", "support_event_n"] == 2
-    assert got.loc["x", "s_reach"] == pytest.approx(.5)
-    assert got.loc["x", "s_rtt"] == pytest.approx(.3)
+    assert got.loc["x", "s_reach_primary"] == pytest.approx(.5)
+    assert got.loc["x", "s_rtt_primary"] == pytest.approx(.3)
     assert got.loc["y", "s_reach_tier"] == "high"
     assert got.loc["z", "s_reach_tier"] == "low"
+
+
+def test_final_workbook_is_the_direct_p1_p2_source_and_respects_measurement_start():
+    cfg = load_config(run_id="excel-input", mode="demo")
+    events, segments = build_final_calibration_events(cfg)
+    assert not events.empty
+    assert set(segments.segment_type).issubset({"outage", "explicit_clear"})
+    assert (segments.start_utc >= pd.Timestamp("2024-06-22T08:00:00Z")).all()
+    assert events.use_main.sum() == 56
+    assert events.use_augmented.sum() == 123

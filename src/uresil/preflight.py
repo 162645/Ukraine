@@ -57,70 +57,29 @@ def validate_event_registry(cfg: Config) -> list[str]:
     return errors
 
 
-def validate_schedule_registry(cfg: Config) -> list[str]:
-    schedule = cfg.load_schedule_registry()
-    events = cfg.load_event_registry()
+def validate_final_calibration_workbook(cfg: Config) -> list[str]:
+    """Validate only the reviewed Excel P1/P2 input used by v5 calibration."""
+    events, segments = cfg.load_final_calibration_input()
     errors: list[str] = []
-    required = {"segment_id", "event_id", "independence_cluster", "start_utc", "end_utc",
-                "queue_count", "timezone_name", "source_authority", "source_url",
-                "final_version", "publication_eligible"}
-    missing = sorted(required - set(schedule.columns))
+    required = {"segment_id", "event_id", "state_en", "segment_type", "start_utc", "end_utc",
+                "use_main", "use_augmented", "episode_id_main", "episode_id_augmented"}
+    missing = sorted(required - set(segments.columns))
     if missing:
         return [f"missing columns: {missing}"]
-    if schedule["segment_id"].duplicated().any():
+    if segments.segment_id.duplicated().any():
         errors.append("duplicate segment_id")
-    known = set(events["event_id"].astype(str))
-    unknown = sorted(set(schedule["event_id"].astype(str)) - known)
-    # v3.0 contains a date-complete regional/evidence registry.  Rows that do
-    # not correspond to the frozen v2 event registry remain available for the
-    # regional overlay, but are not silently promoted to core event claims.
-    version = schedule.get("schema_version", pd.Series("", index=schedule.index)).astype(str)
-    is_wide_registry = version.str.startswith(("v3", "v4")).any()
-    if unknown and not is_wide_registry:
-        errors.append(f"schedule references unknown events: {unknown}")
-    if schedule["independence_cluster"].astype(str).str.strip().eq("").any():
-        errors.append("blank independence_cluster")
-    if (~schedule["timezone_name"].eq("Europe/Kyiv")).any():
-        errors.append("all schedule rows must use Europe/Kyiv")
-    eligible = schedule
-    if "analysis_eligible" in eligible:
-        eligible = eligible[pd.to_numeric(eligible["analysis_eligible"], errors="coerce").fillna(0).eq(1)]
-    if (eligible["start_utc"].isna() | eligible["end_utc"].isna() |
-            eligible["end_utc"].le(eligible["start_utc"])).any():
-        errors.append("non-positive schedule interval")
-    queue = pd.to_numeric(eligible["queue_count"], errors="coerce")
-    if queue.dropna().lt(0).any() or queue.dropna().gt(6).any():
-        errors.append("queue_count outside [0,6]")
-    if eligible["final_version"].ne(1).any():
-        errors.append("non-final schedule version present in frozen registry")
-    if is_wide_registry:
-        sources = eligible["source_url"].astype(str)
-        if "verified_source_url" in eligible:
-            sources = sources.where(sources.str.startswith("https://"),
-                                    eligible["verified_source_url"].astype(str))
-        if (~sources.str.startswith("https://")).any():
-            errors.append("wide schedule registry contains no HTTPS evidence URL")
-    elif (~schedule["source_url"].astype(str).str.startswith(("https://t.me/s/Ukrenergo", "https://t.me/s/ukrenergo"))).any():
-        errors.append("non-official schedule source URL")
-    grouping = ["event_id"]
-    if is_wide_registry:
-        # Regional v3 rows may legitimately overlap national rows.  Only
-        # reject overlaps within the same administrative/operator/category
-        # scope. Historical/superseded and cancelled rows are retained for
-        # provenance but cannot make the active registry invalid.
-        active = eligible[~eligible.get("status_norm", "").isin({"superseded", "cancelled"})]
-        if "record_role" in active:
-            active = active[active["record_role"].isin({"planned_or_final_dispatch", "final_dispatch"})]
-        schedule = active
-        grouping = [c for c in ("event_id", "admin1", "operator", "scope_type", "queue_id",
-                                "consumer_class", "restriction_type") if c in schedule]
-    for _, group in schedule.sort_values("start_utc").groupby(grouping, dropna=False):
-        prev_end = None
-        for _, row in group.iterrows():
-            if prev_end is not None and row["start_utc"] < prev_end:
-                errors.append("overlapping final schedule segments within one scope")
-                break
-            prev_end = row["end_utc"]
+    if set(segments.event_id.astype(str)) - set(events.event_id.astype(str)):
+        errors.append("segments reference unknown final event")
+    cutoff = pd.to_datetime(cfg.study["measurement_start_utc"], utc=True)
+    selected = segments[segments.use_main.eq(1) | segments.use_augmented.eq(1)]
+    if selected.empty:
+        errors.append("no P1/P2 calibration segments")
+    if selected.loc[selected.segment_type.eq("outage"), "start_utc"].lt(cutoff).any():
+        errors.append("selected outage before measurement_start_utc")
+    if selected.loc[selected.use_main.eq(1), "episode_id_main"].astype(str).str.strip().eq("").any():
+        errors.append("P1 segment without episode_id_main")
+    if selected.loc[selected.use_augmented.eq(1), "episode_id_augmented"].astype(str).str.strip().eq("").any():
+        errors.append("P1/P2 segment without episode_id_augmented")
     return errors
 
 
@@ -176,8 +135,8 @@ def run(cfg: Config) -> dict:
     checks = []
     event_errors = validate_event_registry(cfg)
     checks.append({"check": "event_registry", "ok": not event_errors, "detail": event_errors})
-    schedule_errors = validate_schedule_registry(cfg)
-    checks.append({"check": "planned_outage_schedule_registry", "ok": not schedule_errors,
+    schedule_errors = validate_final_calibration_workbook(cfg)
+    checks.append({"check": "final_calibration_workbook", "ok": not schedule_errors,
                    "detail": schedule_errors})
     oblast_errors = validate_oblast_execution_registry(cfg)
     checks.append({"check": "oblast_execution_registry", "ok": not oblast_errors,
@@ -218,10 +177,9 @@ def run(cfg: Config) -> dict:
     role_counts = ready.groupby("analysis_role").size().astype(int).to_dict()
     registered_valid = int(role_counts.get("planned_valid", 0))
     required_valid = int(cfg.calibration.get("min_publication_validation_events", 2))
-    schedule = cfg.load_schedule_registry()
-    valid_ids = set(ready.loc[ready["analysis_role"].eq("planned_valid"), "event_id"].astype(str))
-    pub_schedule = schedule[(schedule["event_id"].isin(valid_ids)) & schedule["publication_eligible"].eq(1)]
-    registered_valid_clusters = int(pub_schedule["independence_cluster"].replace("", pd.NA).dropna().nunique())
+    calibration_events, _ = cfg.load_final_calibration_input()
+    p1 = calibration_events[calibration_events.use_main.eq(1)]
+    registered_valid_clusters = int(p1.episode_id_main.replace("", pd.NA).dropna().nunique())
     required_valid_clusters = int(cfg.calibration.get("min_publication_validation_clusters", 2))
     attack_roles = {"attack_national", "attack_regional", "blind_test", "stress_test"}
     registered_attacks = int(ready[ready["analysis_role"].isin(attack_roles)].shape[0])

@@ -162,7 +162,7 @@ class Config:
 
     def load_schedule_registry(self):
         import pandas as pd
-        p = self.resource_path("schedule_registry")
+        p = self.resource_path("legacy_schedule_registry")
         df = pd.read_csv(p, dtype=str, keep_default_na=False)
         # v3.0 is a wider, evidence-preserving registry exported from the
         # workbook.  Normalize its names to the v2 analysis contract while
@@ -275,6 +275,29 @@ class Config:
             raise ValueError("calibration event registry has duplicate state-date entries")
         return df
 
+    def load_final_calibration_input(self):
+        """Read the frozen workbook; legacy schedule rows never select v5 events."""
+        import pandas as pd
+        p = self.resource_path("calibration_workbook")
+        events = pd.read_excel(p, sheet_name="final_calibration_events")
+        segments = pd.read_excel(p, sheet_name="final_calibration_segments")
+        required_events = {"event_id", "state_en", "use_main", "use_augmented",
+                           "episode_id_main", "episode_id_augmented", "measurement_start_ok"}
+        required_segments = {"segment_id", "event_id", "state_en", "segment_type", "start_utc", "end_utc",
+                             "use_main", "use_augmented", "episode_id_main", "episode_id_augmented"}
+        missing = required_events.difference(events.columns) | required_segments.difference(segments.columns)
+        if missing:
+            raise ValueError(f"final calibration workbook missing columns: {sorted(missing)}")
+        for d in (events, segments):
+            for c in ("use_main", "use_augmented", "measurement_start_ok"):
+                if c in d:
+                    d[c] = pd.to_numeric(d[c], errors="coerce").fillna(0).astype("int8")
+        for c in ("start_utc", "end_utc"):
+            segments[c] = pd.to_datetime(segments[c], utc=True, errors="coerce")
+        if segments[["start_utc", "end_utc"]].isna().any().any() or (segments.end_utc <= segments.start_utc).any():
+            raise ValueError("final calibration workbook contains invalid UTC segments")
+        return events, segments
+
     def _load_aux_registry(self, freeze_key: str, datetime_columns: tuple[str, ...]):
         import pandas as pd
         df = pd.read_csv(self.resource_path(freeze_key), dtype=str, keep_default_na=False)
@@ -299,7 +322,7 @@ class Config:
 
     def frozen_hashes(self) -> dict[str, str]:
         out = {"config": file_sha256(self.config_path)}
-        for key in ("event_registry", "schedule_registry", "calibration_event_registry", "oblast_execution_registry",
+        for key in ("event_registry", "calibration_workbook", "oblast_execution_registry",
                     "weather_episode_registry", "source_post_registry", "exposure_registry",
                     "mapping_manifest", "admin1_aliases"):
             out[key] = file_sha256(self.resource_path(key))

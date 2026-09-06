@@ -986,6 +986,10 @@ def run(cfg: Config) -> dict:
         "exp_b_matching_balance.csv": _concat_frames(attack_store["balances"]),
         "exp_b_state_sensitivity_validation.csv": _concat_frames(attack_store["state_sensitivity"]),
         "exp_b_state_sensitivity_association.csv": _concat_frames(attack_store["state_sensitivity_association"]),
+        # Publication-facing names for the frozen sensitivity validation.
+        "attack_state_sensitivity_validation.csv": _concat_frames(attack_store["state_sensitivity"]),
+        "attack_continuous_sensitivity_association.csv": _concat_frames(attack_store["state_sensitivity_association"]),
+        "attack_recovery_validation.csv": _concat_frames(attack_store["state_sensitivity_association"]),
     }
     for name, d in outmap.items():
         logger.info("expB reducer write: %s rows=%d", name, len(d))

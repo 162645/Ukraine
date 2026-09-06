@@ -3,8 +3,10 @@ freeze:
   frozen: true
   measurement_view: AWS_Frankfurt_to_Ukraine
   event_registry: event_registry_v2.csv
-  schedule_registry: planned_outage_schedule_v4_0.csv
-  calibration_event_registry: calibration_event_registry_v1.csv
+  # The Excel workbook is the sole frozen source for planned-outage calibration.
+  calibration_workbook: ukraine_outage_calibration_ready_v1.xlsx
+  # Retained only for legacy descriptive modules; it never selects v5 calibration events.
+  legacy_schedule_registry: planned_outage_schedule_v4_0.csv
   oblast_execution_registry: oblast_execution_registry_v1.csv
   weather_episode_registry: weather_episode_registry_v1.csv
   source_post_registry: source_post_registry_v1.csv
@@ -49,6 +51,7 @@ study:
   # compared before any expensive query; mismatch aborts the entire run.
   measurement_timestamp_timezone: UTC
   start_utc: '2024-06-01 00:00:00'
+  measurement_start_utc: '2024-06-22 08:00:00'
   end_utc: '2025-01-31 23:59:59'
   expected_cycle_interval_hours: 2
   cycle_gap_tolerance_min: 20

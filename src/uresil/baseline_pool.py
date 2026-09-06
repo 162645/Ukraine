@@ -9,12 +9,11 @@ from .db import CHClient
 from .events import Events, slot_of
 from .progress import get_logger, pbar, step
 from .simple_calibration import (_overlap_cycle_ids, _prefix_batches,
-                                 build_calibration_events)
+                                 build_final_calibration_events)
 
 
 def select_baseline_cycles(cfg: Config, grid: pd.DataFrame, targets: pd.DataFrame) -> list[int]:
-    events, segments = build_calibration_events(
-        cfg.load_schedule_registry(), set(targets.target_admin1.dropna().astype(str)))
+    _, segments = build_final_calibration_events(cfg, set(targets.target_admin1.dropna().astype(str)))
     excluded: set[int] = set()
     cycle_h = float(cfg.study["expected_cycle_interval_hours"])
     for _, group in segments.groupby("event_id") if not segments.empty else []:
@@ -22,7 +21,9 @@ def select_baseline_cycles(cfg: Config, grid: pd.DataFrame, targets: pd.DataFram
             grid, group, cycle_h=cycle_h,
             min_overlap_fraction=float(cfg.simple_calibration["min_cycle_overlap_fraction"]),
             buffer_minutes=0))
-    clean = grid[grid.is_complete.astype(bool) & ~grid.cycle_id.isin(excluded)].copy()
+    measurement_start = pd.to_datetime(cfg.study["measurement_start_utc"], utc=True)
+    clean = grid[grid.is_complete.astype(bool) & ~grid.cycle_id.isin(excluded) &
+                 pd.to_datetime(grid.measure_time, utc=True).ge(measurement_start)].copy()
     clean["slot"] = slot_of(clean.measure_time, int(cycle_h))
     per_slot = int(cfg.simple_calibration.get("baseline_cycles_per_slot", 12))
     chosen = (clean.sort_values("measure_time").groupby("slot", group_keys=False)

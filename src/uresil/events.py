@@ -91,7 +91,9 @@ class Events:
         pad = pd.Timedelta(days=int(self.cfg.baseline["exclude_event_pad_days"]))
         mt = pd.to_datetime(grid["measure_time"], utc=True)
         mask = grid["is_complete"].astype(bool).copy()
-        for _, row in self.df.iterrows():
+        # Planned-outage evidence belongs to the dedicated Excel calibration
+        # workflow.  Baselines here exclude only independent war/energy attacks.
+        for _, row in self.attacks.iterrows():
             starts = [row.get("attack_start_utc"), row.get("outage_start_utc"), row.get("anchor_lower_utc")]
             ends = [row.get("outage_end_utc"), row.get("power_recovery_end_utc"),
                     row.get("network_recovery_end_utc"), row.get("anchor_upper_utc")]

@@ -68,10 +68,10 @@ def score_parts(cfg: Config) -> list[str]:
 def _calibrated_membership(cfg: Config) -> pd.DataFrame:
     path = cfg.out_dir("data_derived") / "calibrated_sensors.parquet"
     if not _readable_parquet(path):
-        return pd.DataFrame(columns=["dst_ip", "is_power_sensitive", "s_reach", "s_rtt",
+        return pd.DataFrame(columns=["dst_ip", "s_reach", "s_rtt",
                                      "s_reach_tier", "s_rtt_tier"])
     d = pd.read_parquet(path)
-    cols = [c for c in ("dst_ip", "is_power_sensitive", "s_reach", "s_rtt",
+    cols = [c for c in ("dst_ip", "s_reach", "s_rtt",
                         "s_reach_tier", "s_rtt_tier") if c in d]
     return d[cols].drop_duplicates("dst_ip")
 

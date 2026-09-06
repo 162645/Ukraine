@@ -160,6 +160,59 @@ def build_calibration_events(schedule: pd.DataFrame,
     return events.sort_values(["event_date", "geo_name"]).reset_index(drop=True), segments
 
 
+def build_final_calibration_events(cfg: Config, valid_admin1: set[str] | None = None) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Build frozen calibration units directly from the reviewed Excel workbook.
+
+    This is deliberately separate from ``build_calibration_events``: no legacy
+    schedule eligibility field or inferred episode can enter the v5 estimand.
+    """
+    event_book, segment_book = cfg.load_final_calibration_input()
+    cutoff = pd.to_datetime(cfg.study["measurement_start_utc"], utc=True)
+    valid = set(valid_admin1 or [])
+    event_book = event_book[event_book.measurement_start_ok.eq(1)].copy()
+    event_book = event_book[(event_book.use_main.eq(1)) | (event_book.use_augmented.eq(1))].copy()
+    if valid:
+        event_book = event_book[event_book.state_en.astype(str).isin(valid)].copy()
+    # An event that begins before active measurement is an audit record only,
+    # never a calibration unit.  Keeping this boundary here also protects B1
+    # and control selection when a workbook is revised later.
+    event_book = event_book[pd.to_datetime(event_book.outage_start_utc, utc=True, errors="coerce").ge(cutoff)].copy()
+    segments = segment_book[segment_book.event_id.astype(str).isin(event_book.event_id.astype(str))].copy()
+    segments = segments[segments.segment_type.isin(["outage", "explicit_clear"])].copy()
+    segments = segments[segments.start_utc.ge(cutoff)].copy()
+    if valid:
+        segments = segments[segments.state_en.astype(str).isin(valid)].copy()
+    if segments.empty:
+        return pd.DataFrame(), pd.DataFrame()
+    segments = segments.rename(columns={"state_en": "target_admin1"})
+    segments["schedule_positive"] = segments.segment_type.eq("outage").astype("int8")
+    segments["event_date"] = segments.event_date.astype(str)
+    groups = []
+    for event_id, group in segments.groupby("event_id", sort=True):
+        outage = group[group.schedule_positive.eq(1)]
+        if outage.empty:
+            continue
+        book = event_book[event_book.event_id.astype(str).eq(str(event_id))]
+        if book.empty:
+            continue
+        row = book.iloc[0]
+        groups.append({
+            "event_id": str(event_id), "geo_level": str(row.get("geo_level", "oblast")),
+            "geo_name": str(row.state_en), "event_date": str(row.event_date),
+            "start_utc": outage.start_utc.min(), "end_utc": outage.end_utc.max(),
+            "segment_n": int(len(outage)),
+            "explicit_clear_segment_n": int(group.segment_type.eq("explicit_clear").sum()),
+            "source_record_n": int(outage.segment_id.nunique()),
+            "evidence_tier": str(row.evidence_tier), "quality": str(row.get("quality", "")),
+            "use_main": int(row.use_main), "use_augmented": int(row.use_augmented),
+            "episode_id_main": str(row.episode_id_main or ""),
+            "episode_id_augmented": str(row.episode_id_augmented or ""),
+            "measurement_start_utc": cutoff,
+        })
+    events = pd.DataFrame(groups)
+    return events.sort_values(["event_date", "geo_name"]).reset_index(drop=True), segments
+
+
 def _overlap_cycle_ids(grid: pd.DataFrame, segments: pd.DataFrame, *, cycle_h: float,
                        min_overlap_fraction: float, buffer_minutes: int,
                        schedule_positive: int | None = 1) -> list[int]:
@@ -326,188 +379,138 @@ def _within_state_tertile(frame: pd.DataFrame, column: str, output: str) -> pd.S
 
 
 def aggregate_sensors(candidates: pd.DataFrame) -> pd.DataFrame:
-    """Freeze primary and proxy-augmented continuous per-IP sensitivities."""
+    """Freeze distinct P1 and P1+P2 continuous per-IP sensitivities."""
     if candidates.empty:
-        return pd.DataFrame(columns=["dst_ip", "support_event_n", "sensor_score", "is_power_sensitive"])
+        return pd.DataFrame(columns=["dst_ip", "support_episode_n", "s_reach_primary", "s_rtt_primary", "s_reach_augmented", "s_rtt_augmented"])
     usable = candidates.get("is_event_usable", candidates.get("is_event_candidate", False))
     d = candidates[pd.Series(usable, index=candidates.index).astype(bool)].copy()
     if d.empty:
-        return pd.DataFrame(columns=["dst_ip", "support_event_n", "sensor_score", "is_power_sensitive"])
+        return pd.DataFrame(columns=["dst_ip", "support_episode_n", "s_reach_primary", "s_rtt_primary", "s_reach_augmented", "s_rtt_augmented"])
     for column in ("s_reach_explicit_clear", "s_rtt_explicit_clear"):
         if column not in d:
             d[column] = np.nan
-    if "evidence_tier" not in d:
-        # Compatibility for unit fixtures and pre-registry artifacts.
-        d["evidence_tier"] = "primary_A"
+    if "use_main" not in d:
+        d["use_main"] = 1
+    if "use_augmented" not in d:
+        d["use_augmented"] = 1
     identity = [c for c in ("dst_ip", "prefix24", "target_admin1", "target_city",
                             "target_isp_domain", "target_asn", "network_stratum") if c in d]
     # Day windows inside one continuous restriction episode do not add
     # independent evidence.  Collapse them before estimating each IP score.
-    if "episode_id" not in d:
-        d["episode_id"] = d["event_id"]
-    def summarize(frame: pd.DataFrame) -> pd.DataFrame:
+    def summarize(frame: pd.DataFrame, episode_column: str, suffix: str) -> pd.DataFrame:
         if frame.empty:
             return pd.DataFrame(columns=identity)
+        if episode_column not in frame:
+            frame[episode_column] = frame["event_id"]
+        frame["episode_id"] = frame[episode_column].replace("", pd.NA).fillna(frame["event_id"])
         episode = (frame.groupby([*identity, "episode_id"], as_index=False)
                    .agg(s_reach_event=("s_reach_event", "mean"), s_rtt_event=("s_rtt_event", "mean"),
                         s_reach_explicit_clear=("s_reach_explicit_clear", "mean"),
                         s_rtt_explicit_clear=("s_rtt_explicit_clear", "mean"),
                         rtt_estimable=("rtt_estimable", "sum"), p_normal=("p_normal", "mean"),
                         p_outage=("p_outage", "mean"), drop=("drop", "mean"), recovery=("recovery", "mean")))
-        return (episode.groupby(identity, as_index=False)
-                .agg(support_episode_n=("episode_id", "nunique"),
+        episode = episode.rename(columns={"episode_id": episode_column})
+        out = (episode.groupby(identity, as_index=False)
+                .agg(support_episode_n=(episode_column, "nunique"),
                      s_reach=("s_reach_event", "mean"), s_reach_median=("s_reach_event", "median"),
                      s_rtt=("s_rtt_event", "mean"), s_rtt_event_n=("rtt_estimable", "sum"),
                      normal_reach=("p_normal", "mean"), outage_reach=("p_outage", "mean"),
                      s_reach_explicit_clear=("s_reach_explicit_clear", "mean"),
                      s_rtt_explicit_clear=("s_rtt_explicit_clear", "mean"),
                      diagnostic_pre_drop=("drop", "mean"), diagnostic_recovery=("recovery", "mean")))
+        return out.rename(columns={c: f"{c}_{suffix}" for c in out.columns if c not in identity})
 
-    primary = summarize(d[d.evidence_tier.isin({"primary_A", "primary_Aplus"})])
-    augmented = summarize(d)
-    # The primary score is the formal estimand.  The augmented score is only a
-    # documented robustness contrast that adds operator-service-area evidence.
-    summary = augmented.merge(primary, on=identity, how="left", suffixes=("_proxy_augmented", ""))
+    primary = summarize(d[d.use_main.eq(1)].copy(), "episode_id_main", "primary")
+    augmented = summarize(d[d.use_augmented.eq(1)].copy(), "episode_id_augmented", "augmented")
+    summary = primary.merge(augmented, on=identity, how="outer")
     if summary.empty:
         return summary
-    summary["s_reach_tier"] = _within_state_tertile(summary, "s_reach", "s_reach_tier")
-    summary["s_rtt_tier"] = _within_state_tertile(summary, "s_rtt", "s_rtt_tier")
-    summary["support_event_n"] = summary["support_episode_n"]
+    summary["s_reach_tier"] = _within_state_tertile(summary, "s_reach_primary", "s_reach_tier")
+    summary["s_rtt_tier"] = _within_state_tertile(summary, "s_rtt_primary", "s_rtt_tier")
+    summary["support_episode_n"] = summary["support_episode_n_primary"]
+    summary["support_event_n"] = summary["support_episode_n_primary"]
     summary["calibration_design"] = "B1_state_same_weekday_slot_clean_cycle"
     # This flag is intentionally not used for method selection.  It preserves
     # a readable indicator that a score is supported by at least one event.
-    summary["is_power_sensitive"] = summary["support_event_n"].fillna(0).gt(0)
-    summary["has_primary_score"] = summary["support_event_n"].fillna(0).gt(0)
-    summary["has_proxy_augmented_score"] = summary["support_episode_n_proxy_augmented"].fillna(0).gt(0)
-    return summary.sort_values(["target_admin1", "s_reach", "dst_ip"], ascending=[True, False, True]).reset_index(drop=True)
+    summary["has_primary_score"] = summary["s_reach_primary"].notna()
+    summary["has_augmented_score"] = summary["s_reach_augmented"].notna()
+    # Aliases keep downstream attack-panel readers compatible; they always use
+    # the formal P1 score and never create a binary electrical label.
+    summary["s_reach"] = summary["s_reach_primary"]
+    summary["s_rtt"] = summary["s_rtt_primary"]
+    summary["has_proxy_augmented_score"] = summary["has_augmented_score"]
+    return summary.sort_values(["target_admin1", "s_reach_primary", "dst_ip"], ascending=[True, False, True]).reset_index(drop=True)
 
 
 def run(cfg: Config) -> dict:
-    logger = get_logger(cfg.out_dir("logs"))
-    dd, rt = cfg.out_dir("data_derived"), cfg.out_dir("results_tables")
+    logger = get_logger(cfg.out_dir("logs")); dd, rt = cfg.out_dir("data_derived"), cfg.out_dir("results_tables")
     universe = pd.read_parquet(dd / "target_ip_universe.parquet")
-    targets = universe.copy()
-    # Calibration starts only after the label-free B1 stability filter.  This
-    # prevents transient/poorly observed endpoints from acquiring a spurious
-    # sensitivity score because one schedule window happened to be sparse.
     parts = b1_score_parts(dd)
-    if not parts:
-        raise RuntimeError("B1 stable pool is required before state sensitivity calibration")
-    b1 = pd.concat([pd.read_parquet(p, columns=["dst_ip", "prefix24", "in_B1"]) for p in parts],
-                   ignore_index=True)
+    if not parts: raise RuntimeError("B1 stable pool is required before calibration")
+    b1 = pd.concat([pd.read_parquet(p, columns=["dst_ip", "prefix24", "in_B1"]) for p in parts], ignore_index=True)
     b1 = b1[b1.in_B1.astype(bool)].drop_duplicates(["dst_ip", "prefix24"])
-    targets = targets.merge(b1[["dst_ip", "prefix24"]], on=["dst_ip", "prefix24"], how="inner")
-    targets = targets[targets.get("regional_eligible", pd.Series(False, index=targets.index)).astype(bool)].copy()
-    candidate_columns = [c for c in ("dst_ip", "prefix24", "target_admin1", "target_city",
-                                     "target_isp_domain", "target_asn", "network_stratum",
-                                     "regional_eligible") if c in targets]
-    candidate_path = dd / "candidate_ips.parquet"
-    targets[candidate_columns].to_parquet(candidate_path, index=False)
+    targets = universe.merge(b1[["dst_ip", "prefix24"]], on=["dst_ip", "prefix24"], how="inner")
+    targets = targets[targets.regional_eligible.astype(bool)].copy()
+    candidate_path = dd / "candidate_ips.parquet"; targets.to_parquet(candidate_path, index=False)
     grid = Events(cfg).build_cycle_grid(pd.read_parquet(dd / "cycle_quality.parquet"))
-    registry = cfg.load_calibration_event_registry()
-    events, segments = build_calibration_events(
-        cfg.load_schedule_registry(), set(targets.target_admin1.dropna().astype(str)), registry)
-    if events.empty:
-        raise RuntimeError("no eligible regional scheduled-outage calibration events")
-    event_path = rt / "calibration_events.csv"
-    events.to_csv(event_path, index=False, encoding="utf-8-sig")
-    cycle_h = float(cfg.study["expected_cycle_interval_hours"])
-    # All eligible local planned-outage windows are excluded from matched
-    # controls, including records outside the formal calibration whitelist.
-    _, all_segments = build_calibration_events(
-        cfg.load_schedule_registry(), set(targets.target_admin1.dropna().astype(str)))
-    all_outage_ids: set[int] = set()
-    for _, group in all_segments.groupby("event_id"):
-        all_outage_ids.update(_overlap_cycle_ids(
-            grid, group, cycle_h=cycle_h,
-            min_overlap_fraction=float(cfg.simple_calibration["min_cycle_overlap_fraction"]),
-            buffer_minutes=int(cfg.simple_calibration["transition_buffer_minutes"])))
-    cache = dd / "simple_calibration" / "event_sensitivity_v4_registry"
-    cache.mkdir(parents=True, exist_ok=True)
+    events, segments = build_final_calibration_events(cfg, set(targets.target_admin1.dropna().astype(str)))
+    if events.empty: raise RuntimeError("no reviewed P1/P2 calibration events after measurement boundary")
+    events.to_csv(rt / "calibration_events.csv", index=False, encoding="utf-8-sig")
+    cycle_h = float(cfg.study["expected_cycle_interval_hours"]); all_outage_ids: set[int] = set()
+    for _, group in segments[segments.schedule_positive.eq(1)].groupby("event_id"):
+        all_outage_ids.update(_overlap_cycle_ids(grid, group, cycle_h=cycle_h, min_overlap_fraction=float(cfg.simple_calibration["min_cycle_overlap_fraction"]), buffer_minutes=int(cfg.simple_calibration["transition_buffer_minutes"])))
+    cache = dd / "simple_calibration" / "event_sensitivity_v5_excel"; cache.mkdir(parents=True, exist_ok=True)
     audit_rows, candidate_parts = [], []
-    with step("Simple scheduled-outage sensor calibration", logger):
+    with step("Reviewed Excel planned-outage calibration", logger):
         with CHClient(cfg) as ch:
             for index, event in events.iterrows():
-                event_id = str(event.event_id)
-                path = cache / f"{event_id}.parquet"
-                event_segments = segments[segments.event_id.eq(event_id)]
+                event_id = str(event.event_id); event_segments = segments[segments.event_id.astype(str).eq(event_id)]
                 cycles = event_cycle_sets(event, event_segments, grid, cfg, all_outage_ids)
                 region_targets = targets[targets.target_admin1.eq(event.geo_name)]
-                # Pre/post windows diagnose transition and recovery only. They
-                # do not identify S_i = matched-normal reach minus outage reach.
-                estimable = (len(cycles["normal"]) >= int(cfg.simple_calibration["min_normal_cycles"]) and
-                             len(cycles["outage"]) >= int(cfg.simple_calibration["min_outage_cycles"]) and
-                             not region_targets.empty)
-                selected = pd.DataFrame()
+                reasons = []
+                if region_targets.empty: reasons.append("no_B1_for_state")
+                if len(cycles["outage"]) < int(cfg.simple_calibration["min_outage_cycles"]): reasons.append("insufficient_outage_cycles")
+                if len(cycles["normal"]) < int(cfg.simple_calibration["min_normal_cycles"]): reasons.append("insufficient_normal_controls")
+                estimable = not reasons; selected = pd.DataFrame(); path = cache / f"{event_id}.parquet"
                 if estimable:
-                    if path.exists() and path.stat().st_size:
-                        selected = pd.read_parquet(path)
+                    if path.exists() and path.stat().st_size: selected = pd.read_parquet(path)
                     else:
                         raw = _query_event(ch, cfg, region_targets, cycles)
                         if not raw.empty:
                             scored = score_event_rows(raw, cycles, cfg)
-                            scored["event_id"] = event_id
-                            scored["episode_id"] = event.episode_id
-                            scored["evidence_tier"] = event.evidence_tier
-                            scored["pre_reach"] = scored.p_pre
-                            scored["outage_reach"] = scored.p_outage
-                            scored["post_reach"] = scored.p_post
+                            for col in ("use_main", "use_augmented", "episode_id_main", "episode_id_augmented", "evidence_tier"):
+                                scored[col] = event[col]
                             selected = scored[scored.is_event_usable].copy()
                         selected.to_parquet(path, index=False)
-                if not selected.empty:
-                    candidate_parts.append(selected)
-                audit_rows.append({
-                    "event_id": event_id, "geo_name": event.geo_name,
-                    "normal_cycle_n": len(cycles["normal"]), "pre_cycle_n": len(cycles["pre"]),
-                    "outage_cycle_n": len(cycles["outage"]), "post_cycle_n": len(cycles["post"]),
-                    "explicit_clear_cycle_n": len(cycles["clear"]), "episode_id": event.episode_id,
-                    "evidence_tier": event.evidence_tier, "scope_requirement": event.scope_requirement,
-                    "candidate_ip_pool_n": int(region_targets.dst_ip.nunique()),
-                    "scored_stable_ip_n": int(selected.dst_ip.nunique()) if not selected.empty else 0,
-                    "estimable": int(estimable), "event_index": int(index + 1),
-                })
-                logger.info("calibration event %d/%d %s estimable=%s scored_stable=%d",
-                            index + 1, len(events), event_id, estimable,
-                            0 if selected.empty else selected.dst_ip.nunique())
+                if not selected.empty: candidate_parts.append(selected)
+                audit_rows.append({"event_id": event_id, "geo_name": event.geo_name, "event_date": event.event_date,
+                    "use_main": event.use_main, "use_augmented": event.use_augmented, "episode_id_main": event.episode_id_main,
+                    "episode_id_augmented": event.episode_id_augmented, "normal_cycle_n": len(cycles["normal"]),
+                    "outage_cycle_n": len(cycles["outage"]), "explicit_clear_cycle_n": len(cycles["clear"]),
+                    "pre_cycle_n": len(cycles["pre"]), "post_cycle_n": len(cycles["post"]),
+                    "candidate_ip_pool_n": int(region_targets.dst_ip.nunique()), "scored_stable_ip_n": int(selected.dst_ip.nunique()) if not selected.empty else 0,
+                    "sensitivity_estimable": int(estimable), "recovery_estimable": int(len(cycles["post"]) >= int(cfg.simple_calibration["min_post_cycles"])),
+                    "not_estimable_reason": "|".join(reasons), "measurement_start_utc": cfg.study["measurement_start_utc"]})
     candidates = pd.concat(candidate_parts, ignore_index=True) if candidate_parts else pd.DataFrame()
-    sensors = aggregate_sensors(candidates)
-    sensor_path = dd / "calibrated_sensors.parquet"
-    sensors.to_parquet(sensor_path, index=False)
-    sensors.to_csv(rt / "calibrated_sensors.csv", index=False, encoding="utf-8-sig")
-    # Preserve one transparent state for every measured endpoint.  Missing S_i
-    # is never silently recoded as zero or as electrical insensitivity.
-    label_columns = [c for c in ("dst_ip", "prefix24", "target_admin1", "target_city", "target_asn",
-                                 "network_stratum", "regional_eligible") if c in universe]
-    labels = universe[label_columns].drop_duplicates(["dst_ip", "prefix24"])
-    labels = labels.merge(b1.assign(in_B1=1)[["dst_ip", "prefix24", "in_B1"]],
-                          on=["dst_ip", "prefix24"], how="left")
-    labels["in_B1"] = labels.in_B1.fillna(0).astype("int8")
-    score_columns = [c for c in sensors.columns if c not in {"target_city", "target_asn", "network_stratum"}]
-    labels = labels.merge(sensors[score_columns].drop_duplicates(["dst_ip", "prefix24"]),
-                          on=["dst_ip", "prefix24", "target_admin1"], how="left")
-    labels["sensitivity_status"] = np.select(
-        [labels.in_B1.eq(0), ~labels.get("regional_eligible", pd.Series(False, index=labels.index)).astype(bool),
-         labels.get("has_primary_score", pd.Series(False, index=labels.index)).fillna(False),
-         labels.get("has_proxy_augmented_score", pd.Series(False, index=labels.index)).fillna(False)],
-        ["not_B1_stable", "not_regional", "primary_estimable", "proxy_only_estimable"],
-        default="no_registered_event_support")
-    label_path = dd / "ip_sensitivity_labels.parquet"
-    labels.to_parquet(label_path, index=False)
-    labels.to_csv(rt / "ip_sensitivity_labels.csv", index=False, encoding="utf-8-sig")
-    audit = pd.DataFrame(audit_rows)
-    audit.to_csv(rt / "calibration_event_audit.csv", index=False, encoding="utf-8-sig")
-    summary = {
-        "candidate_ip_n": int(targets.dst_ip.nunique()), "calibration_event_n": int(len(events)),
-        "estimable_event_n": int(audit.estimable.sum()), "calibrated_sensor_n": int(len(sensors)),
-        "all_ip_label_n": int(len(labels)),
-        "primary_sensor_n": int(sensors.has_primary_score.sum()) if not sensors.empty else 0,
-        "proxy_augmented_sensor_n": int(sensors.has_proxy_augmented_score.sum()) if not sensors.empty else 0,
-        "repeated_support_ip_n": int(sensors.support_event_n.ge(2).sum()) if not sensors.empty else 0,
-        "claim_scope": "frozen continuous state-level planned-outage sensitivity; not IP-level electrical ground truth",
-    }
-    summary_path = rt / "calibration_summary.json"
-    summary_path.write_text(json.dumps(summary, indent=2, ensure_ascii=False), encoding="utf-8")
-    return {"status": "ok" if len(sensors) else "warning",
-            "outputs": [str(candidate_path), str(event_path), str(sensor_path), str(label_path),
-                        str(rt / "calibrated_sensors.csv"), str(rt / "ip_sensitivity_labels.csv"), str(rt / "calibration_event_audit.csv"),
-                        str(summary_path)], **summary}
+    sensors = aggregate_sensors(candidates); sensor_path = dd / "calibrated_sensors.parquet"; sensors.to_parquet(sensor_path, index=False)
+    audit = pd.DataFrame(audit_rows); audit.to_csv(rt / "calibration_event_audit.csv", index=False, encoding="utf-8-sig")
+    episode_audit = pd.concat([audit[audit.use_main.eq(1)].groupby(["geo_name", "episode_id_main"], as_index=False).agg(event_n=("event_id", "nunique"), estimable_event_n=("sensitivity_estimable", "sum")).assign(analysis="primary"), audit[audit.use_augmented.eq(1)].groupby(["geo_name", "episode_id_augmented"], as_index=False).agg(event_n=("event_id", "nunique"), estimable_event_n=("sensitivity_estimable", "sum")).assign(analysis="augmented")], ignore_index=True)
+    episode_audit.to_csv(rt / "calibration_episode_audit.csv", index=False, encoding="utf-8-sig")
+    labels = targets[[c for c in ("dst_ip", "prefix24", "target_admin1", "target_city", "target_asn", "network_stratum") if c in targets]].drop_duplicates(["dst_ip", "prefix24"]).copy(); labels["in_B1"] = 1
+    labels = labels.merge(sensors, on=["dst_ip", "prefix24", "target_admin1"], how="left", suffixes=("", "_score"))
+    labels["primary_estimable"] = labels.s_reach_primary.notna(); labels["augmented_estimable"] = labels.s_reach_augmented.notna()
+    p1_states = set(events.loc[events.use_main.eq(1), "geo_name"]); p2_states = set(events.loc[events.use_augmented.eq(1), "geo_name"])
+    labels["not_estimable_reason"] = np.where(labels.primary_estimable, "", np.where(~labels.target_admin1.isin(p1_states), "no_calibration_event_for_state", "insufficient_measurement_support"))
+    labels["augmented_not_estimable_reason"] = np.where(labels.augmented_estimable, "", np.where(~labels.target_admin1.isin(p2_states), "no_calibration_event_for_state", "insufficient_measurement_support"))
+    labels.to_parquet(rt / "b1_full_sensitivity_labels.parquet", index=False); labels.to_csv(rt / "b1_full_sensitivity_labels.csv", index=False, encoding="utf-8-sig")
+    primary = labels[labels.primary_estimable].copy(); augmented = labels[labels.augmented_estimable].copy(); primary.to_csv(rt / "calibrated_sensitivity_primary.csv", index=False, encoding="utf-8-sig"); augmented.to_csv(rt / "calibrated_sensitivity_augmented.csv", index=False, encoding="utf-8-sig")
+    state_summary = labels.groupby("target_admin1", dropna=False).agg(b1_ip_n=("dst_ip", "nunique"), primary_ip_n=("primary_estimable", "sum"), augmented_ip_n=("augmented_estimable", "sum"), s_reach_primary_mean=("s_reach_primary", "mean"), s_reach_augmented_mean=("s_reach_augmented", "mean")).reset_index(); state_summary.to_csv(rt / "state_sensitivity_summary.csv", index=False, encoding="utf-8-sig")
+    funnel = pd.DataFrame([{"stage":"raw_ip", "n": universe.dst_ip.nunique()}, {"stage":"regional_ip", "n": universe[universe.regional_eligible.astype(bool)].dst_ip.nunique()}, {"stage":"B1_ip", "n": labels.dst_ip.nunique()}, {"stage":"B1_with_P1_state", "n": labels[labels.target_admin1.isin(p1_states)].dst_ip.nunique()}, {"stage":"P1_estimable", "n": int(labels.primary_estimable.sum())}, {"stage":"B1_with_P1P2_state", "n": labels[labels.target_admin1.isin(p2_states)].dst_ip.nunique()}, {"stage":"P1P2_estimable", "n": int(labels.augmented_estimable.sum())}]); funnel.to_csv(rt / "calibration_funnel.csv", index=False, encoding="utf-8-sig")
+    labels.loc[~labels.primary_estimable].groupby("not_estimable_reason").size().reset_index(name="ip_n").to_csv(rt / "calibration_not_estimable_reasons.csv", index=False, encoding="utf-8-sig")
+    both = labels[labels.primary_estimable & labels.augmented_estimable].copy()
+    robust_rows = []
+    for state, x in both.groupby("target_admin1"):
+        robust_rows.append({"target_admin1": state, "ip_n": len(x), "pearson_r": x.s_reach_primary.corr(x.s_reach_augmented), "spearman_rho": x.s_reach_primary.corr(x.s_reach_augmented, method="spearman"), "tier_agreement": (x.s_reach_tier == _within_state_tertile(x, "s_reach_augmented", "tmp")).mean()})
+    pd.DataFrame(robust_rows).to_csv(rt / "primary_vs_augmented_robustness.csv", index=False, encoding="utf-8-sig")
+    summary = {"raw_ip_n": int(universe.dst_ip.nunique()), "b1_ip_n": int(len(labels)), "calibration_event_n": int(len(events)), "primary_sensor_n": int(labels.primary_estimable.sum()), "augmented_sensor_n": int(labels.augmented_estimable.sum())}; (rt / "calibration_summary.json").write_text(json.dumps(summary, indent=2), encoding="utf-8")
+    return {"status": "ok", "outputs": [str(rt / x) for x in ("calibration_event_audit.csv", "calibration_episode_audit.csv", "b1_full_sensitivity_labels.csv", "calibrated_sensitivity_primary.csv", "calibrated_sensitivity_augmented.csv", "state_sensitivity_summary.csv", "calibration_funnel.csv", "primary_vs_augmented_robustness.csv")], **summary}
