@@ -27,9 +27,8 @@ from uresil.time_contract import measurement_time_contract
 # the sole later database stage: its query prefix set is defined by the local
 # features + expB matching outputs, so moving it earlier would change the
 # scientific sample rather than merely changing execution order.
-STAGE_ORDER = ["preflight", "audit", "panels", "expA", "expRegional", "sensorPanels",
-               "features", "expB", "expE", "expG", "expF", "expD", "expC",
-               "figures", "validate"]
+STAGE_ORDER = ["preflight", "audit", "panels", "baseline", "calibrate", "sensorPanels",
+               "features", "expB", "expF", "expD", "figures", "validate"]
 
 
 def completed(cfg, stage: str) -> bool:
@@ -49,17 +48,14 @@ def execute(stage: str, cfg):
     if stage == "panels":
         from uresil import panels as m
         return m.run(cfg)
-    if stage == "expA":
-        from uresil import exp_a_calibration as m
+    if stage == "baseline":
+        from uresil import baseline_pool as m
         return m.run(cfg)
-    if stage == "expRegional":
-        from uresil import exp_h_regional_calibration as m
+    if stage == "calibrate":
+        from uresil import simple_calibration as m
         return m.run(cfg)
     if stage == "sensorPanels":
         from uresil import sensor_panels as m
-        return m.run(cfg)
-    if stage == "expG":
-        from uresil import exp_g_oblast_falsification as m
         return m.run(cfg)
     if stage == "features":
         from uresil import features as m
@@ -67,17 +63,11 @@ def execute(stage: str, cfg):
     if stage == "expB":
         from uresil import exp_b_event_study as m
         return m.run(cfg)
-    if stage == "expC":
-        from uresil import exp_c_fingerprint as m
-        return m.run(cfg)
     if stage == "expF":
         from uresil import exp_f_external_validation as m
         return m.run(cfg)
     if stage == "expD":
         from uresil import exp_d_recovery_debt as m
-        return m.run(cfg)
-    if stage == "expE":
-        from uresil import exp_e_path as m
         return m.run(cfg)
     if stage == "figures":
         from uresil import viz

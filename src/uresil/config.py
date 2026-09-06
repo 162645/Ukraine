@@ -68,7 +68,7 @@ class Config:
     @property
     def calibration(self): return self.section("calibration")
     @property
-    def regional_calibration(self): return self.section("regional_calibration")
+    def simple_calibration(self): return self.section("simple_calibration")
     @property
     def matching(self): return self.section("matching")
     @property

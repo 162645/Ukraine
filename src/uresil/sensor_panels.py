@@ -1,4 +1,4 @@
-"""Build zero-inclusive event panels from frozen B1/B2 endpoint sensor sets.
+"""Build zero-inclusive event panels from stable and calibrated sensor sets.
 
 Endpoint geography remains at IP resolution.  A /24 may therefore contribute
 separate analysis units to different ASN/Admin1 groups; numerators and denominators
@@ -8,8 +8,6 @@ prefix's responders from being duplicated across groups.
 from __future__ import annotations
 
 import glob
-from functools import lru_cache
-from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -67,59 +65,26 @@ def score_parts(cfg: Config) -> list[str]:
     return sorted(glob.glob(str(cfg.out_dir("data_derived") / "ip_sensor_scores_parts" / "part_*.parquet")))
 
 
-@lru_cache(maxsize=4)
-def _regional_membership_cached(path_text: str, primary_buffer: int,
-                                min_available: int) -> pd.DataFrame:
-    path = Path(path_text)
+def _calibrated_membership(cfg: Config) -> pd.DataFrame:
+    path = cfg.out_dir("data_derived") / "calibrated_sensors.parquet"
     if not _readable_parquet(path):
-        return pd.DataFrame()
-    d = pd.read_parquet(path)
-    d = d[pd.to_numeric(d["transition_buffer_minutes"], errors="coerce").eq(primary_buffer)].copy()
-    d["regional_validated_candidate"] = (
-        d["in_B2_region"].astype(bool) &
-        pd.to_numeric(d["available_event_n"], errors="coerce").fillna(0).ge(min_available)
-    )
-    return (d.groupby(["target_admin1", "dst_ip"], as_index=False)
-            .agg(regional_validated_candidate=("regional_validated_candidate", "any"),
-                 regional_available_episode_n=("available_event_n", "max"),
-                 regional_positive_event_fraction=("positive_event_fraction", "max")))
-
-
-def _regional_membership(cfg: Config) -> pd.DataFrame:
-    if not bool(cfg.regional_calibration.get("use_regional_sensor_downstream", False)):
-        return pd.DataFrame()
-    path = cfg.out_dir("data_derived") / "regional_calibration" / "regional_sensor_membership.parquet"
-    primary_buffer = int(cfg.regional_calibration["transition_buffer_minutes"])
-    min_available = int(cfg.regional_calibration["min_train_events"]) + 1
-    return _regional_membership_cached(str(path), primary_buffer, min_available)
+        return pd.DataFrame(columns=["dst_ip", "is_power_sensitive"])
+    d = pd.read_parquet(path, columns=["dst_ip", "is_power_sensitive"])
+    return d[d.is_power_sensitive.astype(bool)].drop_duplicates("dst_ip")
 
 
 def _read_sensor_part(cfg: Config, path: str, columns: list[str]) -> pd.DataFrame:
     d = pd.read_parquet(path, columns=columns)
-    membership = _regional_membership(cfg)
-    if membership.empty:
-        return d
-    d = d.merge(membership, on=["target_admin1", "dst_ip"], how="left", validate="many_to_one")
-    d["in_B2_global"] = d["in_B2"].astype(bool)
+    membership = _calibrated_membership(cfg)
+    d = d.drop(columns=["in_B2"], errors="ignore")
+    d = d.merge(membership, on="dst_ip", how="left", validate="many_to_one")
     d["in_B2"] = (d["in_B1"].astype(bool) &
-                   d["regional_validated_candidate"].fillna(False).astype(bool))
+                   d["is_power_sensitive"].fillna(False).astype(bool))
     return d
 
 
 def choose_primary_method(cfg: Config) -> str:
-    if bool(cfg.regional_calibration.get("use_regional_sensor_downstream", False)):
-        p = cfg.out_dir("results_tables") / "regional_calibration_gate.json"
-        if p.exists() and p.stat().st_size:
-            import json
-            gate = json.loads(p.read_text(encoding="utf-8"))
-            return "B2" if int(gate.get("regional_calibration_success", 0)) == 1 else "B1"
-        return "B1"
-    p = cfg.out_dir("results_tables") / "exp_a_summary.csv"
-    if p.exists() and p.stat().st_size:
-        d = pd.read_csv(p)
-        if "calibration_success" in d and d["calibration_success"].astype(str).str.lower().isin(["true", "1"]).any():
-            return "B2"
-    return "B1"
+    return "B2" if not _calibrated_membership(cfg).empty else "B1"
 
 
 def build_denominators(cfg: Config, parts: list[str]) -> pd.DataFrame:
@@ -288,10 +253,10 @@ def run(cfg: Config) -> dict:
                                  written=len(written), cached=progress.cached)
         progress.finish(written=len(written), cached=progress.cached, failed=progress.failed)
         primary = choose_primary_method(cfg)
-        regional_overlay = not _regional_membership(cfg).empty
+        calibrated_overlay = not _calibrated_membership(cfg).empty
         pd.DataFrame([{
             "primary_sensor_method": primary,
-            "b2_sensor_source": "regional_episode_crossfit" if regional_overlay else "national_schedule",
+            "b2_sensor_source": "single_event_stable_drop_recovery" if calibrated_overlay else "none",
             "calibration_positive": int(primary == "B2"),
             "n_B1_sensor": int(denom.loc[denom.method.eq("B1"), "sensor_n"].sum()),
             "n_B2_sensor": int(denom.loc[denom.method.eq("B2"), "sensor_n"].sum()),

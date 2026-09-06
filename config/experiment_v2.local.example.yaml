@@ -1,5 +1,5 @@
 freeze:
-  plan_version: analysis_plan_v3_0_outage_registry
+  plan_version: analysis_plan_v5_simple_outage_calibration
   frozen: true
   measurement_view: AWS_Frankfurt_to_Ukraine
   event_registry: event_registry_v2.csv

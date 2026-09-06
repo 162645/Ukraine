@@ -12,7 +12,8 @@ Ukraine Energy Shock & Internet Resilience — experiment code package.
   events   : 事件注册表、窗口、周期标签
   features : 事件特征 (immediate_drop / max_deficit / AUC / T90 ...)
   stats    : 块自助法、生存分析、FDR 等推断工具
-  exp_a_calibration      : 实验A 计划停电弱监督校准
+  baseline_pool          : 不使用停电标签的稳定IP对照池
+  simple_calibration     : 地区计划停电下降—恢复弱监督校准
   exp_b_event_study      : 实验B 攻击事件影响量化 (事件研究/匹配)
   exp_c_fingerprint      : 实验C ASN×Admin1 韧性指纹与留一事件预测
   exp_d_recovery_debt    : 实验D 重复冲击与恢复债务
