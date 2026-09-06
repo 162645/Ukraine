@@ -224,7 +224,12 @@ def build_event_prefix_panels(cfg: Config, cq: pd.DataFrame, expected: pd.DataFr
     out_dir = cfg.out_dir("data_derived") / "event_prefix_panel"
     out_dir.mkdir(parents=True, exist_ok=True)
     written = []
-    for _, row in pbar(list(ev.df.iterrows()), total=len(ev.df), desc="B0 event panels", unit="event"):
+    # v5 calibrates from the dedicated state-event registry and validates only
+    # against independent energy attacks.  Do not materialise legacy national
+    # planned-outage panels here: they are neither a calibration source nor a
+    # v5 validation outcome, and otherwise dominate a fresh run's cost.
+    attack_events = ev.attacks
+    for _, row in pbar(list(attack_events.iterrows()), total=len(attack_events), desc="B0 attack panels", unit="event"):
         lo, hi = ev.event_window(row)
         cycles = grid[(grid["measure_time"] >= lo) & (grid["measure_time"] <= hi) & grid["is_complete"].eq(1)][
             ["cycle_id", "measure_time", "slot"]]
