@@ -136,13 +136,24 @@ def _overlap_cycle_ids(grid: pd.DataFrame, segments: pd.DataFrame, *, cycle_h: f
         return []
     mt = pd.to_datetime(grid.measure_time, utc=True)
     cycle_end = mt + pd.Timedelta(hours=cycle_h)
-    overlap = pd.Series(0.0, index=grid.index)
     buffer = pd.Timedelta(minutes=buffer_minutes)
+    intervals: list[tuple[pd.Timestamp, pd.Timestamp]] = []
     for _, row in segments.iterrows():
         start = pd.to_datetime(row.start_utc, utc=True) + buffer
         end = pd.to_datetime(row.end_utc, utc=True) - buffer
-        if end <= start:
-            continue
+        if end > start:
+            intervals.append((start, end))
+    # Queue/operator rows can describe the same state outage interval.  Merge
+    # them before measuring overlap so duplicated queues never manufacture a
+    # fully treated two-hour cycle.
+    merged: list[list[pd.Timestamp]] = []
+    for start, end in sorted(intervals):
+        if not merged or start > merged[-1][1]:
+            merged.append([start, end])
+        else:
+            merged[-1][1] = max(merged[-1][1], end)
+    overlap = pd.Series(0.0, index=grid.index)
+    for start, end in merged:
         left = mt.where(mt > start, start)
         right = cycle_end.where(cycle_end < end, end)
         overlap += ((right - left).dt.total_seconds() / 3600).clip(lower=0)
@@ -197,6 +208,8 @@ def score_event_rows(raw: pd.DataFrame, cycle_sets: dict[str, list[int]], cfg: C
         n = len(cycle_sets.get(phase, []))
         d[f"n_{phase}"] = n
         d[f"p_{phase}"] = pd.to_numeric(d.get(f"x_{phase}", pd.Series(0, index=d.index)), errors="coerce").fillna(0) / max(n, 1)
+    if d["n_clear"].eq(0).all():
+        d["p_clear"] = np.nan
     # The matched normal cycles, rather than the immediately preceding period,
     # define the registered counterfactual.  ``pre``/``post`` remain diagnostic
     # fields only: a real planned outage can span most of a day.
@@ -210,6 +223,8 @@ def score_event_rows(raw: pd.DataFrame, cycle_sets: dict[str, list[int]], cfg: C
     d["s_rtt_event"] = (outage_rtt - normal_rtt) / normal_rtt.where(normal_rtt.gt(0))
     clear_rtt = pd.to_numeric(d.get("rtt_clear", pd.Series(np.nan, index=d.index)), errors="coerce")
     d["s_rtt_explicit_clear"] = (outage_rtt - clear_rtt) / clear_rtt.where(clear_rtt.gt(0))
+    if d["n_clear"].eq(0).all():
+        d["s_rtt_explicit_clear"] = np.nan
     d["rtt_estimable"] = normal_rtt.gt(0) & outage_rtt.notna()
     d["is_event_usable"] = (
         d.n_normal.ge(int(scfg["min_normal_cycles"])) &
@@ -225,6 +240,11 @@ def score_event_rows(raw: pd.DataFrame, cycle_sets: dict[str, list[int]], cfg: C
 def _prefix_batches(values: list[str], size: int):
     for i in range(0, len(values), size):
         yield values[i:i + size]
+
+
+def b1_score_parts(data_derived: Path) -> list[str]:
+    """Locate baseline-score parts; isolated to keep the real-run entry testable."""
+    return sorted(glob.glob(str(data_derived / "ip_sensor_scores_parts" / "part_*.parquet")))
 
 
 def _query_event(ch: CHClient, cfg: Config, targets: pd.DataFrame,
@@ -317,7 +337,7 @@ def run(cfg: Config) -> dict:
     # Calibration starts only after the label-free B1 stability filter.  This
     # prevents transient/poorly observed endpoints from acquiring a spurious
     # sensitivity score because one schedule window happened to be sparse.
-    parts = sorted(glob.glob.glob(str(dd / "ip_sensor_scores_parts" / "part_*.parquet")))
+    parts = b1_score_parts(dd)
     if not parts:
         raise RuntimeError("B1 stable pool is required before state sensitivity calibration")
     b1 = pd.concat([pd.read_parquet(p, columns=["dst_ip", "prefix24", "in_B1"]) for p in parts],

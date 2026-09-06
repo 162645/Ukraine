@@ -82,6 +82,28 @@ def test_frozen_sensitivity_validation_compares_high_and_low_within_state():
     high = got[got.sensitivity_stratum.eq("high")].iloc[0]
     assert high.mean_reach_deficit > 0
     assert high.high_minus_low_mean_reach_deficit > 0
-    association = continuous_state_sensitivity_association(pd.DataFrame(rows), event, estimand)
+    association = continuous_state_sensitivity_association(pd.DataFrame(rows), event, estimand, cfg)
     reach = association[association.attack_outcome.eq("mean_reach_deficit")].iloc[0]
     assert reach.slope_per_unit_sensitivity > 0
+
+
+def test_continuous_sensitivity_association_reports_t90_recovery_slope():
+    cfg = load_config(run_id="recovery_validation", mode="demo")
+    event = cfg.load_event_registry().query("event_id == 'E2024_0826_ATTACK'").iloc[0]
+    estimand = primary_estimand(event); anchor = estimand.anchor_utc; rows = []
+    paths = [("low", .1, [.9, .9, .9, .9]), ("middle", .5, [.4, .9, .9, .9]),
+             ("high", .9, [.4, .4, .9, .9])]
+    for tier, score, values in paths:
+        rows.append({"analysis_unit_id": f"u-{tier}", "target_admin1": "Odesa Oblast", "method": "S_REACH",
+                     "sensitivity_stratum": tier, "sensitivity_value": score, "slot": 1,
+                     "is_clean_baseline": 1, "stage": "clean_baseline", "normalized_reach": .9,
+                     "rtt_median": 50., "rel_bin": -8, "measure_time": anchor - pd.Timedelta(hours=8)})
+        for j, value in enumerate(values):
+            rows.append({"analysis_unit_id": f"u-{tier}", "target_admin1": "Odesa Oblast", "method": "S_REACH",
+                         "sensitivity_stratum": tier, "sensitivity_value": score, "slot": 1,
+                         "is_clean_baseline": 0, "stage": "outcome", "normalized_reach": value,
+                         "rtt_median": 50., "rel_bin": 2*j, "measure_time": anchor + pd.Timedelta(hours=2*j)})
+    got = continuous_state_sensitivity_association(pd.DataFrame(rows), event, estimand, cfg)
+    recovery = got[got.attack_outcome.eq("t90_h")].iloc[0]
+    assert recovery.slope_per_unit_sensitivity > 0
+    assert recovery.n_recovery_censored == 0

@@ -49,7 +49,8 @@ Only three reader-facing calibration artifacts are central:
 - `exp_b_state_sensitivity_validation.csv`: frozen high-versus-low sensitivity
   comparisons within each attack-affected state.
 - `exp_b_state_sensitivity_association.csv`: within-state continuous slopes
-  relating frozen `S_i` to attack-period outcomes.
+  relating frozen `S_i` to attack-period reachability loss, RTT change, and
+  time to 90 percent recovery (`t90_h`), with unrecovered units right-censored.
 
 Large event-level candidate partitions are internal checkpoints rather than
 manual spreadsheets.

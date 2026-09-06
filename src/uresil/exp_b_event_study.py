@@ -410,8 +410,14 @@ def frozen_state_sensitivity_validation(panel: pd.DataFrame, event: pd.Series,
 
 
 def continuous_state_sensitivity_association(panel: pd.DataFrame, event: pd.Series,
-                                             estimand: EventEstimand) -> pd.DataFrame:
-    """Estimate the within-state continuous S_i-to-attack-outcome association."""
+                                             estimand: EventEstimand, cfg: Config) -> pd.DataFrame:
+    """Estimate the within-state continuous S_i-to-attack-outcome association.
+
+    Recovery is time to the first run of complete cycles reaching 90 percent of
+    that unit's same-slot clean baseline.  Units that never recover inside the
+    observed window remain explicitly right-censored and are not silently given
+    a short recovery time.
+    """
     required = {"sensitivity_value", "is_clean_baseline", "normalized_reach", "stage"}
     if panel.empty or not required.issubset(panel.columns):
         return pd.DataFrame()
@@ -431,15 +437,28 @@ def continuous_state_sensitivity_association(panel: pd.DataFrame, event: pd.Seri
     outcome = d[d.stage.eq("outcome")]
     if outcome.empty:
         return pd.DataFrame()
-    per_unit = (outcome.groupby(["target_admin1", unit], as_index=False)
-                .agg(sensitivity_value=("sensitivity_value", "first"),
-                     mean_reach_deficit=("reach_deficit", "mean"),
-                     accumulated_reach_deficit=("reach_deficit", "sum"),
-                     mean_rtt_relative_change=("rtt_change", "mean")))
+    rows_unit = []
+    consecutive = int(cfg.event_windows.get("recovery_consecutive", 2))
+    for (admin1, unit_id), g in outcome.groupby(["target_admin1", unit]):
+        g = g.sort_values("rel_bin").copy()
+        recovered = (g.normalized_reach >= 0.9 * g.base_reach).fillna(False).to_numpy(bool)
+        t90, censored = np.nan, 1
+        for i in range(max(0, len(g) - consecutive + 1)):
+            if recovered[i:i + consecutive].all():
+                t90, censored = float(g.iloc[i].rel_bin), 0
+                break
+        rows_unit.append({"target_admin1": admin1, unit: unit_id,
+                          "sensitivity_value": g.sensitivity_value.iloc[0],
+                          "mean_reach_deficit": g.reach_deficit.mean(),
+                          "accumulated_reach_deficit": g.reach_deficit.sum(),
+                          "mean_rtt_relative_change": g.rtt_change.mean(),
+                          "t90_h": t90, "recovery_censored": censored})
+    per_unit = pd.DataFrame(rows_unit)
     rows = []
     for admin1, g in per_unit.groupby("target_admin1"):
         x = pd.to_numeric(g.sensitivity_value, errors="coerce")
-        for outcome_name in ("mean_reach_deficit", "accumulated_reach_deficit", "mean_rtt_relative_change"):
+        for outcome_name in ("mean_reach_deficit", "accumulated_reach_deficit",
+                             "mean_rtt_relative_change", "t90_h"):
             z = pd.DataFrame({"x": x, "y": pd.to_numeric(g[outcome_name], errors="coerce")}).dropna()
             if len(z) < 3 or z.x.nunique() < 2:
                 continue
@@ -448,6 +467,7 @@ def continuous_state_sensitivity_association(panel: pd.DataFrame, event: pd.Seri
                          "analysis_role": event.analysis_role, "claim_scope": estimand.claim_scope,
                          "admin1": admin1, "sensitivity_metric": panel.method.iloc[0],
                          "attack_outcome": outcome_name, "n_analysis_unit": len(z),
+                         "n_recovery_censored": int(g.recovery_censored.sum()) if outcome_name == "t90_h" else 0,
                          "slope_per_unit_sensitivity": float(fit.slope), "pearson_r": float(fit.rvalue),
                          "p_value": float(fit.pvalue)})
     return pd.DataFrame(rows)
@@ -818,7 +838,7 @@ def run(cfg: Config) -> dict:
                         if not sv.empty:
                             _append_component(event_store, "state_sensitivity", sv)
                         association = continuous_state_sensitivity_association(
-                            annotate_design(sp, event, estimand, cfg), event, estimand)
+                            annotate_design(sp, event, estimand, cfg), event, estimand, cfg)
                         if not association.empty:
                             _append_component(event_store, "state_sensitivity_association", association)
                     universes = target_universe_panels(panel, national)

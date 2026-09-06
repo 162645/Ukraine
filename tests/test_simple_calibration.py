@@ -4,8 +4,8 @@ import pandas as pd
 import pytest
 
 from uresil.events import slot_of
-from uresil.simple_calibration import (aggregate_sensors, build_calibration_events,
-                                       score_event_rows)
+from uresil.simple_calibration import (_overlap_cycle_ids, aggregate_sensors, b1_score_parts,
+                                       build_calibration_events, score_event_rows)
 
 
 def _cfg():
@@ -70,6 +70,23 @@ def test_slot_encodes_weekday_and_two_hour_time():
     assert slots.iloc[0] != slots.iloc[2]
 
 
+def test_overlapping_queue_segments_use_a_true_time_union():
+    grid = pd.DataFrame({"cycle_id": [1], "measure_time": pd.to_datetime(["2024-07-01T18:00:00Z"]),
+                         "is_complete": [1]})
+    duplicate = pd.DataFrame([{"start_utc": "2024-07-01T18:00:00Z", "end_utc": "2024-07-01T18:30:00Z",
+                               "schedule_positive": 1} for _ in range(4)])
+    # Four identical 30-minute queue records cover 30 minutes, not four hours.
+    assert _overlap_cycle_ids(grid, duplicate, cycle_h=2, min_overlap_fraction=.5, buffer_minutes=0) == []
+    one_hour = duplicate.copy(); one_hour["end_utc"] = "2024-07-01T19:00:00Z"
+    assert _overlap_cycle_ids(grid, one_hour, cycle_h=2, min_overlap_fraction=.5, buffer_minutes=0) == [1]
+
+
+def test_b1_score_part_discovery_uses_the_real_glob_entry_path(tmp_path):
+    part_dir = tmp_path / "ip_sensor_scores_parts"; part_dir.mkdir()
+    (part_dir / "part_00001.parquet").touch(); (part_dir / "other.parquet").touch()
+    assert b1_score_parts(tmp_path) == [str(part_dir / "part_00001.parquet")]
+
+
 def test_single_event_yields_continuous_reach_and_rtt_sensitivity_without_recovery_gate():
     raw = pd.DataFrame([
         {"dst_ip": "good", "x_normal": 4, "x_pre": 2, "x_outage": 0, "x_post": 2,
@@ -86,6 +103,8 @@ def test_single_event_yields_continuous_reach_and_rtt_sensitivity_without_recove
     assert not bool(got.loc["unstable", "is_event_usable"])
     assert got.loc["good", "s_reach_event"] == 1.0
     assert got.loc["good", "s_rtt_event"] == 0.3
+    assert pd.isna(got.loc["good", "s_reach_explicit_clear"])
+    assert pd.isna(got.loc["good", "s_rtt_explicit_clear"])
 
 
 def test_aggregate_freezes_mean_sensitivity_and_within_state_tertiles():

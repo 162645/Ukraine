@@ -70,7 +70,9 @@ and conditional RTT change. Cross-state summaries follow those within-state
 comparisons and never redefine the state treatment geography.
 The companion continuous analysis estimates, inside each affected state, the
 slope between frozen `S_i` and each attack-period outcome rather than relying
-only on low/middle/high strata.
+only on low/middle/high strata. Recovery is time to the first consecutive
+complete cycles at or above 90 percent of the same-slot clean baseline; units
+not recovering in the observation window are right-censored.
 
 ## Falsification and claim boundary
 
