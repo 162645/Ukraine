@@ -41,6 +41,12 @@ adequate normal and outage cycles and stable normal reachability. No positive
 drop, recovery, or RTT threshold turns an IP into a binary power label. The
 primary transition buffer is 30 minutes.
 
+Explicit state-level no-outage intervals in the same daily schedule are retained
+as a second, within-day contrast (`S_reach_explicit_clear` and
+`S_rtt_explicit_clear`). They do not replace the weekday-slot primary control.
+Consecutive daily restrictions are first collapsed into one episode, so a
+multi-day restriction does not count as multiple independent calibration events.
+
 For each IP, the event-specific sensitivities are averaged across independent
 state outage events. `S_reach` and `S_rtt` remain separate; RTT is evaluated
 only for responsive observations. Frozen low/middle/high strata are calculated
@@ -62,6 +68,9 @@ affected state, the primary descriptive validation compares high and low
 `S_reach`/`S_rtt` strata on reachability deficit, cumulative deficit, recovery,
 and conditional RTT change. Cross-state summaries follow those within-state
 comparisons and never redefine the state treatment geography.
+The companion continuous analysis estimates, inside each affected state, the
+slope between frozen `S_i` and each attack-period outcome rather than relying
+only on low/middle/high strata.
 
 ## Falsification and claim boundary
 

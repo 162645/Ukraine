@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 import re
+import glob
 from pathlib import Path
 
 import numpy as np
@@ -53,8 +54,6 @@ def build_calibration_events(schedule: pd.DataFrame,
     eligible = _flag(d, "analysis_eligible", 1).eq(1)
     eligible &= _flag(d, "publication_eligible", 1).eq(1)
     eligible &= _flag(d, "confound_free", 1).eq(1)
-    if "schedule_positive" in d:
-        eligible &= d["schedule_positive"].astype(bool)
     if "scope_type_norm" in d:
         scope = d["scope_type_norm"].astype(str).str.lower()
     else:
@@ -80,9 +79,11 @@ def build_calibration_events(schedule: pd.DataFrame,
         if pd.isna(start) or pd.isna(end) or end <= start:
             continue
         date = str(row.get("event_date") or start.date())
+        positive = int(_flag(pd.DataFrame([row]), "schedule_positive", 0).iloc[0])
         for admin1 in regions:
             rows.append({
                 "target_admin1": admin1, "event_date": date,
+                "schedule_positive": positive,
                 "start_utc": start, "end_utc": end,
                 "uses_actual_time": int(has_actual),
                 "operator": str(row.get("operator", "") or ""),
@@ -95,21 +96,42 @@ def build_calibration_events(schedule: pd.DataFrame,
         return pd.DataFrame(), segments
     groups = []
     for (admin1, date), group in segments.groupby(["target_admin1", "event_date"], sort=True):
+        outage_group = group[group.schedule_positive.eq(1)]
+        if outage_group.empty:
+            continue
         event_id = f"CAL_{_slug(admin1)}_{str(date).replace('-', '')}"
         groups.append({
             "event_id": event_id, "geo_level": "oblast", "geo_name": admin1,
-            "event_date": date, "start_utc": group.start_utc.min(),
-            "end_utc": group.end_utc.max(), "segment_n": int(len(group)),
-            "actual_time_segment_n": int(group.uses_actual_time.sum()),
-            "operators": "|".join(sorted(set(x for x in group.operator if x))),
-            "source_record_n": int(group.record_id.nunique()),
+            "event_date": date, "start_utc": outage_group.start_utc.min(),
+            "end_utc": outage_group.end_utc.max(), "segment_n": int(len(outage_group)),
+            "explicit_clear_segment_n": int((group.schedule_positive.eq(0)).sum()),
+            "actual_time_segment_n": int(outage_group.uses_actual_time.sum()),
+            "operators": "|".join(sorted(set(x for x in outage_group.operator if x))),
+            "source_record_n": int(outage_group.record_id.nunique()),
         })
         segments.loc[group.index, "event_id"] = event_id
-    return pd.DataFrame(groups).sort_values(["event_date", "geo_name"]).reset_index(drop=True), segments
+    events = pd.DataFrame(groups).sort_values(["geo_name", "start_utc"]).reset_index(drop=True)
+    # Consecutive daily schedules are one sustained restriction episode, not
+    # independent evidence.  Daily windows remain query units, while later
+    # aggregation first averages inside this episode identifier.
+    events["episode_id"] = ""
+    for admin1, index in events.groupby("geo_name").groups.items():
+        episode = 0; previous_end = None
+        for i in index:
+            start, end = events.loc[i, "start_utc"], events.loc[i, "end_utc"]
+            if previous_end is not None and start - previous_end > pd.Timedelta(hours=36):
+                episode += 1
+            events.loc[i, "episode_id"] = f"EP_{_slug(admin1)}_{episode + 1:02d}"
+            previous_end = max(previous_end, end) if previous_end is not None else end
+    segments = segments.merge(events[["event_id", "episode_id"]], on="event_id", how="inner")
+    return events.sort_values(["event_date", "geo_name"]).reset_index(drop=True), segments
 
 
 def _overlap_cycle_ids(grid: pd.DataFrame, segments: pd.DataFrame, *, cycle_h: float,
-                       min_overlap_fraction: float, buffer_minutes: int) -> list[int]:
+                       min_overlap_fraction: float, buffer_minutes: int,
+                       schedule_positive: int | None = 1) -> list[int]:
+    if schedule_positive is not None and "schedule_positive" in segments:
+        segments = segments[segments.schedule_positive.eq(schedule_positive)]
     if segments.empty:
         return []
     mt = pd.to_datetime(grid.measure_time, utc=True)
@@ -139,8 +161,12 @@ def event_cycle_sets(event: pd.Series, segments: pd.DataFrame, grid: pd.DataFram
         min_overlap_fraction=float(scfg["min_cycle_overlap_fraction"]),
         buffer_minutes=int(scfg["transition_buffer_minutes"]),
     )
+    clear = _overlap_cycle_ids(
+        grid, segments, cycle_h=cycle_h,
+        min_overlap_fraction=float(scfg["min_cycle_overlap_fraction"]), buffer_minutes=0,
+        schedule_positive=0)
     if not outage:
-        return {k: [] for k in ("normal", "pre", "outage", "post")}
+        return {k: [] for k in ("normal", "clear", "pre", "outage", "post")}
     mt = pd.to_datetime(grid.measure_time, utc=True)
     start = pd.to_datetime(event.start_utc, utc=True)
     end = pd.to_datetime(event.end_utc, utc=True)
@@ -159,7 +185,7 @@ def event_cycle_sets(event: pd.Series, segments: pd.DataFrame, grid: pd.DataFram
         normal = before.sort_values(["distance", "measure_time"]).head(need).cycle_id.astype("int64").tolist()
     else:
         normal = []
-    return {"normal": sorted(set(normal)), "pre": sorted(set(pre)),
+    return {"normal": sorted(set(normal)), "clear": sorted(set(clear)), "pre": sorted(set(pre)),
             "outage": sorted(set(outage)), "post": sorted(set(post))}
 
 
@@ -167,20 +193,23 @@ def score_event_rows(raw: pd.DataFrame, cycle_sets: dict[str, list[int]], cfg: C
     """Score one state-level planned-outage event without outcome thresholding."""
     d = raw.copy()
     scfg = cfg.simple_calibration
-    for phase in ("normal", "pre", "outage", "post"):
-        n = len(cycle_sets[phase])
+    for phase in ("normal", "clear", "pre", "outage", "post"):
+        n = len(cycle_sets.get(phase, []))
         d[f"n_{phase}"] = n
-        d[f"p_{phase}"] = pd.to_numeric(d[f"x_{phase}"], errors="coerce").fillna(0) / max(n, 1)
+        d[f"p_{phase}"] = pd.to_numeric(d.get(f"x_{phase}", pd.Series(0, index=d.index)), errors="coerce").fillna(0) / max(n, 1)
     # The matched normal cycles, rather than the immediately preceding period,
     # define the registered counterfactual.  ``pre``/``post`` remain diagnostic
     # fields only: a real planned outage can span most of a day.
     d["s_reach_event"] = d.p_normal - d.p_outage
+    d["s_reach_explicit_clear"] = d.p_clear - d.p_outage
     d["drop"] = d.p_pre - d.p_outage
     d["recovery"] = d.p_post - d.p_outage
     d["placebo_nonresponse"] = 1.0 - d.p_normal
     normal_rtt = pd.to_numeric(d.get("rtt_normal", pd.Series(np.nan, index=d.index)), errors="coerce")
     outage_rtt = pd.to_numeric(d.get("rtt_outage", pd.Series(np.nan, index=d.index)), errors="coerce")
     d["s_rtt_event"] = (outage_rtt - normal_rtt) / normal_rtt.where(normal_rtt.gt(0))
+    clear_rtt = pd.to_numeric(d.get("rtt_clear", pd.Series(np.nan, index=d.index)), errors="coerce")
+    d["s_rtt_explicit_clear"] = (outage_rtt - clear_rtt) / clear_rtt.where(clear_rtt.gt(0))
     d["rtt_estimable"] = normal_rtt.gt(0) & outage_rtt.notna()
     d["is_event_usable"] = (
         d.n_normal.ge(int(scfg["min_normal_cycles"])) &
@@ -208,8 +237,9 @@ def _query_event(ch: CHClient, cfg: Config, targets: pd.DataFrame,
         sql = S.render(
             "11_ip_event_signature", ping=cfg.table("ping"), dc=cfg.study["data_center"],
             prefix_in=S.str_list(prefix_batch), cycle_seconds=int(cfg.study["expected_cycle_interval_hours"] * 3600),
-            normal_cids=S.int_list(cycles["normal"]), pre_cids=S.int_list(cycles["pre"]),
-            outage_cids=S.int_list(cycles["outage"]), post_cids=S.int_list(cycles["post"]),
+            normal_cids=S.int_list(cycles.get("normal", [])), pre_cids=S.int_list(cycles.get("pre", [])),
+            outage_cids=S.int_list(cycles.get("outage", [])), post_cids=S.int_list(cycles.get("post", [])),
+            clear_cids=S.int_list(cycles.get("clear", [])),
             all_cids=S.int_list(all_ids),
         )
         part = ch.query_df(sql)
@@ -245,19 +275,35 @@ def aggregate_sensors(candidates: pd.DataFrame) -> pd.DataFrame:
     d = candidates[pd.Series(usable, index=candidates.index).astype(bool)].copy()
     if d.empty:
         return pd.DataFrame(columns=["dst_ip", "support_event_n", "sensor_score", "is_power_sensitive"])
+    for column in ("s_reach_explicit_clear", "s_rtt_explicit_clear"):
+        if column not in d:
+            d[column] = np.nan
     identity = [c for c in ("dst_ip", "prefix24", "target_admin1", "target_city",
                             "target_isp_domain", "target_asn", "network_stratum") if c in d]
-    summary = (d.groupby(identity, as_index=False)
-               .agg(support_event_n=("event_id", "nunique"),
+    # Day windows inside one continuous restriction episode do not add
+    # independent evidence.  Collapse them before estimating each IP score.
+    if "episode_id" not in d:
+        d["episode_id"] = d["event_id"]
+    episode = (d.groupby([*identity, "episode_id"], as_index=False)
+               .agg(s_reach_event=("s_reach_event", "mean"), s_rtt_event=("s_rtt_event", "mean"),
+                    s_reach_explicit_clear=("s_reach_explicit_clear", "mean"),
+                    s_rtt_explicit_clear=("s_rtt_explicit_clear", "mean"),
+                    rtt_estimable=("rtt_estimable", "sum"), p_normal=("p_normal", "mean"),
+                    p_outage=("p_outage", "mean"), drop=("drop", "mean"), recovery=("recovery", "mean")))
+    summary = (episode.groupby(identity, as_index=False)
+               .agg(support_episode_n=("episode_id", "nunique"),
                     s_reach=("s_reach_event", "mean"),
                     s_reach_median=("s_reach_event", "median"),
                     s_rtt=("s_rtt_event", "mean"),
                     s_rtt_event_n=("rtt_estimable", "sum"),
                     normal_reach=("p_normal", "mean"), outage_reach=("p_outage", "mean"),
+                    s_reach_explicit_clear=("s_reach_explicit_clear", "mean"),
+                    s_rtt_explicit_clear=("s_rtt_explicit_clear", "mean"),
                     diagnostic_pre_drop=("drop", "mean"), diagnostic_recovery=("recovery", "mean")))
     summary["s_reach_tier"] = _within_state_tertile(summary, "s_reach", "s_reach_tier")
     summary["s_rtt_tier"] = _within_state_tertile(summary, "s_rtt", "s_rtt_tier")
-    summary["calibration_design"] = "state_same_slot_clean_cycle"
+    summary["support_event_n"] = summary["support_episode_n"]
+    summary["calibration_design"] = "B1_state_same_weekday_slot_clean_cycle"
     # This flag is intentionally not used for method selection.  It preserves
     # a readable indicator that a score is supported by at least one event.
     summary["is_power_sensitive"] = summary["support_event_n"].gt(0)
@@ -268,6 +314,16 @@ def run(cfg: Config) -> dict:
     logger = get_logger(cfg.out_dir("logs"))
     dd, rt = cfg.out_dir("data_derived"), cfg.out_dir("results_tables")
     targets = pd.read_parquet(dd / "target_ip_universe.parquet")
+    # Calibration starts only after the label-free B1 stability filter.  This
+    # prevents transient/poorly observed endpoints from acquiring a spurious
+    # sensitivity score because one schedule window happened to be sparse.
+    parts = sorted(glob.glob.glob(str(dd / "ip_sensor_scores_parts" / "part_*.parquet")))
+    if not parts:
+        raise RuntimeError("B1 stable pool is required before state sensitivity calibration")
+    b1 = pd.concat([pd.read_parquet(p, columns=["dst_ip", "prefix24", "in_B1"]) for p in parts],
+                   ignore_index=True)
+    b1 = b1[b1.in_B1.astype(bool)].drop_duplicates(["dst_ip", "prefix24"])
+    targets = targets.merge(b1[["dst_ip", "prefix24"]], on=["dst_ip", "prefix24"], how="inner")
     targets = targets[targets.get("regional_eligible", pd.Series(False, index=targets.index)).astype(bool)].copy()
     candidate_columns = [c for c in ("dst_ip", "prefix24", "target_admin1", "target_city",
                                      "target_isp_domain", "target_asn", "network_stratum",
@@ -288,7 +344,7 @@ def run(cfg: Config) -> dict:
             grid, group, cycle_h=cycle_h,
             min_overlap_fraction=float(cfg.simple_calibration["min_cycle_overlap_fraction"]),
             buffer_minutes=int(cfg.simple_calibration["transition_buffer_minutes"])))
-    cache = dd / "simple_calibration" / "event_candidates"
+    cache = dd / "simple_calibration" / "event_sensitivity_v3"
     cache.mkdir(parents=True, exist_ok=True)
     audit_rows, candidate_parts = [], []
     with step("Simple scheduled-outage sensor calibration", logger):
@@ -313,6 +369,7 @@ def run(cfg: Config) -> dict:
                         if not raw.empty:
                             scored = score_event_rows(raw, cycles, cfg)
                             scored["event_id"] = event_id
+                            scored["episode_id"] = event.episode_id
                             scored["pre_reach"] = scored.p_pre
                             scored["outage_reach"] = scored.p_outage
                             scored["post_reach"] = scored.p_post
@@ -324,6 +381,7 @@ def run(cfg: Config) -> dict:
                     "event_id": event_id, "geo_name": event.geo_name,
                     "normal_cycle_n": len(cycles["normal"]), "pre_cycle_n": len(cycles["pre"]),
                     "outage_cycle_n": len(cycles["outage"]), "post_cycle_n": len(cycles["post"]),
+                    "explicit_clear_cycle_n": len(cycles["clear"]), "episode_id": event.episode_id,
                     "candidate_ip_pool_n": int(region_targets.dst_ip.nunique()),
                     "scored_stable_ip_n": int(selected.dst_ip.nunique()) if not selected.empty else 0,
                     "estimable": int(estimable), "event_index": int(index + 1),

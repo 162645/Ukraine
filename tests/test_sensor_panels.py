@@ -1,7 +1,8 @@
 import pandas as pd
 
 from uresil.config import load_config
-from uresil.exp_b_event_study import frozen_state_sensitivity_validation
+from uresil.exp_b_event_study import (continuous_state_sensitivity_association,
+                                      frozen_state_sensitivity_validation)
 from uresil.event_design import primary_estimand
 from uresil.sensor_panels import build_event_panel, choose_primary_method
 
@@ -69,10 +70,11 @@ def test_frozen_sensitivity_validation_compares_high_and_low_within_state():
     estimand = primary_estimand(event)
     anchor = estimand.anchor_utc
     rows = []
-    for tier, reach in [("low", .9), ("high", .5)]:
+    for tier, sensitivity, reach in [("low", .1, .9), ("middle", .5, .7), ("high", .9, .5)]:
         for rel, stage, value in [(-8, "clean_baseline", .9), (0, "outcome", reach), (2, "outcome", reach)]:
             rows.append({"analysis_unit_id": f"u-{tier}", "target_admin1": "Odesa Oblast",
                          "sensitivity_stratum": tier, "method": "S_REACH", "slot": 1,
+                         "sensitivity_value": sensitivity,
                          "is_clean_baseline": int(stage == "clean_baseline"), "stage": stage,
                          "normalized_reach": value, "rtt_median": 50.0,
                          "rel_bin": rel, "measure_time": anchor + pd.Timedelta(hours=rel)})
@@ -80,3 +82,6 @@ def test_frozen_sensitivity_validation_compares_high_and_low_within_state():
     high = got[got.sensitivity_stratum.eq("high")].iloc[0]
     assert high.mean_reach_deficit > 0
     assert high.high_minus_low_mean_reach_deficit > 0
+    association = continuous_state_sensitivity_association(pd.DataFrame(rows), event, estimand)
+    reach = association[association.attack_outcome.eq("mean_reach_deficit")].iloc[0]
+    assert reach.slope_per_unit_sensitivity > 0

@@ -48,6 +48,7 @@ EXP_B_COMPONENTS = (
     "universe_sensitivity",
     "mean_curves",
     "state_sensitivity",
+    "state_sensitivity_association",
 )
 
 
@@ -406,6 +407,50 @@ def frozen_state_sensitivity_validation(panel: pd.DataFrame, event: pd.Series,
             contrast = (wide["high"] - wide["low"]).rename(f"high_minus_low_{value}").reset_index()
             out = out.merge(contrast, on=key, how="left")
     return out
+
+
+def continuous_state_sensitivity_association(panel: pd.DataFrame, event: pd.Series,
+                                             estimand: EventEstimand) -> pd.DataFrame:
+    """Estimate the within-state continuous S_i-to-attack-outcome association."""
+    required = {"sensitivity_value", "is_clean_baseline", "normalized_reach", "stage"}
+    if panel.empty or not required.issubset(panel.columns):
+        return pd.DataFrame()
+    d = panel[~panel["target_admin1"].isin(INVALID_ADMIN1)].copy()
+    affected = set(estimand.treated_admin1)
+    if affected != {"ALL"}:
+        d = d[d.target_admin1.isin(affected)].copy()
+    unit = _unit_col(d); clean = d[d.is_clean_baseline.eq(1)]
+    if d.empty or clean.empty:
+        return pd.DataFrame()
+    base_keys = [unit, "slot"] if "slot" in d else [unit]
+    base = clean.groupby(base_keys).agg(base_reach=("normalized_reach", "median"),
+                                        base_rtt=("rtt_median", "median")).reset_index()
+    d = d.merge(base, on=base_keys, how="left")
+    d["reach_deficit"] = (d.base_reach - d.normalized_reach).clip(lower=0)
+    d["rtt_change"] = ((d.rtt_median - d.base_rtt) / d.base_rtt.where(d.base_rtt.gt(0)))
+    outcome = d[d.stage.eq("outcome")]
+    if outcome.empty:
+        return pd.DataFrame()
+    per_unit = (outcome.groupby(["target_admin1", unit], as_index=False)
+                .agg(sensitivity_value=("sensitivity_value", "first"),
+                     mean_reach_deficit=("reach_deficit", "mean"),
+                     accumulated_reach_deficit=("reach_deficit", "sum"),
+                     mean_rtt_relative_change=("rtt_change", "mean")))
+    rows = []
+    for admin1, g in per_unit.groupby("target_admin1"):
+        x = pd.to_numeric(g.sensitivity_value, errors="coerce")
+        for outcome_name in ("mean_reach_deficit", "accumulated_reach_deficit", "mean_rtt_relative_change"):
+            z = pd.DataFrame({"x": x, "y": pd.to_numeric(g[outcome_name], errors="coerce")}).dropna()
+            if len(z) < 3 or z.x.nunique() < 2:
+                continue
+            fit = linregress(z.x, z.y)
+            rows.append({"event_id": event.event_id, "estimand_id": estimand.estimand_id,
+                         "analysis_role": event.analysis_role, "claim_scope": estimand.claim_scope,
+                         "admin1": admin1, "sensitivity_metric": panel.method.iloc[0],
+                         "attack_outcome": outcome_name, "n_analysis_unit": len(z),
+                         "slope_per_unit_sensitivity": float(fit.slope), "pearson_r": float(fit.rvalue),
+                         "p_value": float(fit.pvalue)})
+    return pd.DataFrame(rows)
 
 
 def event_mean_curve(panel: pd.DataFrame, event: pd.Series, estimand: EventEstimand) -> pd.DataFrame:
@@ -772,6 +817,10 @@ def run(cfg: Config) -> dict:
                             annotate_design(sp, event, estimand, cfg), event, estimand, cfg)
                         if not sv.empty:
                             _append_component(event_store, "state_sensitivity", sv)
+                        association = continuous_state_sensitivity_association(
+                            annotate_design(sp, event, estimand, cfg), event, estimand)
+                        if not association.empty:
+                            _append_component(event_store, "state_sensitivity_association", association)
                     universes = target_universe_panels(panel, national)
                     universe_progress = HeartbeatProgress(logger, f"expB.universe.{event_id}.{estimand.estimand_id}",
                                                           total=len(universes), unit="universe",
@@ -916,6 +965,7 @@ def run(cfg: Config) -> dict:
         "exp_b_target_universe_sensitivity.csv": _concat_frames(attack_store["universe_sensitivity"]),
         "exp_b_matching_balance.csv": _concat_frames(attack_store["balances"]),
         "exp_b_state_sensitivity_validation.csv": _concat_frames(attack_store["state_sensitivity"]),
+        "exp_b_state_sensitivity_association.csv": _concat_frames(attack_store["state_sensitivity_association"]),
     }
     for name, d in outmap.items():
         logger.info("expB reducer write: %s rows=%d", name, len(d))

@@ -105,12 +105,16 @@ def build_denominators(cfg: Config, parts: list[str]) -> pd.DataFrame:
             if z.empty:
                 continue
             z["sensitivity_stratum"] = "all"
+            z["sensitivity_value"] = np.nan
             if m == "S_REACH":
                 z["sensitivity_stratum"] = z["s_reach_tier"].astype(str)
+                z["sensitivity_value"] = pd.to_numeric(z["s_reach"], errors="coerce")
             elif m == "S_RTT":
                 z["sensitivity_stratum"] = z["s_rtt_tier"].astype(str)
+                z["sensitivity_value"] = pd.to_numeric(z["s_rtt"], errors="coerce")
             rows.append(z.groupby([*group_cols, "sensitivity_stratum"])
-                        .agg(sensor_n=("pN", "size"), expected_response_n=("pN", "sum"))
+                        .agg(sensor_n=("pN", "size"), expected_response_n=("pN", "sum"),
+                             sensitivity_value=("sensitivity_value", "mean"))
                         .reset_index().assign(method=m))
     if not rows:
         return pd.DataFrame()

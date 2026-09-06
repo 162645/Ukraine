@@ -19,6 +19,12 @@ The analysis has two main populations:
   `S_rtt = (RTT(outage) - RTT(normal)) / RTT(normal)`. The two scores remain
   separate and are averaged across independent outage events.
 
+Calibration begins strictly after the label-free B1 stability filter. Normal
+controls use the same weekday-by-two-hour slot and exclude registered outage
+cycles. Explicit same-day no-outage intervals are retained as an auxiliary
+within-day contrast. Consecutive daily restrictions are collapsed to one
+episode before they contribute to an IP's final score.
+
 Power operator and queue fields remain event provenance. ISP/ASN fields are used
 for network-confounding checks and are never treated as electricity providers.
 National schedule rows do not calibrate endpoints.
@@ -42,6 +48,8 @@ Only three reader-facing calibration artifacts are central:
   and within-state sensitivity strata.
 - `exp_b_state_sensitivity_validation.csv`: frozen high-versus-low sensitivity
   comparisons within each attack-affected state.
+- `exp_b_state_sensitivity_association.csv`: within-state continuous slopes
+  relating frozen `S_i` to attack-period outcomes.
 
 Large event-level candidate partitions are internal checkpoints rather than
 manual spreadsheets.

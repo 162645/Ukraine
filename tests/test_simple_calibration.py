@@ -3,6 +3,7 @@ from types import SimpleNamespace
 import pandas as pd
 import pytest
 
+from uresil.events import slot_of
 from uresil.simple_calibration import (aggregate_sensors, build_calibration_events,
                                        score_event_rows)
 
@@ -41,6 +42,32 @@ def test_national_schedule_is_not_a_calibration_label():
     events, segments = build_calibration_events(schedule, {"A"})
     assert events.empty
     assert segments.empty
+
+
+def test_clear_windows_are_retained_and_consecutive_days_share_an_episode():
+    schedule = pd.DataFrame([
+        {"analysis_eligible": 1, "publication_eligible": 1, "confound_free": 1,
+         "schedule_positive": 1, "scope_type_norm": "oblast", "affected_admin1": "A",
+         "event_date": "2024-07-01", "start_utc": "2024-07-01T00:00:00Z", "end_utc": "2024-07-01T12:00:00Z"},
+        {"analysis_eligible": 1, "publication_eligible": 1, "confound_free": 1,
+         "schedule_positive": 0, "scope_type_norm": "oblast", "affected_admin1": "A",
+         "event_date": "2024-07-01", "start_utc": "2024-07-01T12:00:00Z", "end_utc": "2024-07-01T15:00:00Z"},
+        {"analysis_eligible": 1, "publication_eligible": 1, "confound_free": 1,
+         "schedule_positive": 1, "scope_type_norm": "oblast", "affected_admin1": "A",
+         "event_date": "2024-07-02", "start_utc": "2024-07-02T00:00:00Z", "end_utc": "2024-07-02T12:00:00Z"},
+    ])
+    events, segments = build_calibration_events(schedule, {"A"})
+    assert len(events) == 2
+    assert events.explicit_clear_segment_n.sum() == 1
+    assert segments.schedule_positive.eq(0).any()
+    assert events.episode_id.nunique() == 1
+
+
+def test_slot_encodes_weekday_and_two_hour_time():
+    times = pd.to_datetime(["2024-07-01T18:00:00Z", "2024-07-08T18:00:00Z", "2024-07-02T18:00:00Z"])
+    slots = slot_of(pd.Series(times), 2)
+    assert slots.iloc[0] == slots.iloc[1]
+    assert slots.iloc[0] != slots.iloc[2]
 
 
 def test_single_event_yields_continuous_reach_and_rtt_sensitivity_without_recovery_gate():
