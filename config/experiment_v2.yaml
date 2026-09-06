@@ -4,6 +4,7 @@ freeze:
   measurement_view: AWS_Frankfurt_to_Ukraine
   event_registry: event_registry_v2.csv
   schedule_registry: planned_outage_schedule_v4_0.csv
+  calibration_event_registry: calibration_event_registry_v1.csv
   oblast_execution_registry: oblast_execution_registry_v1.csv
   weather_episode_registry: weather_episode_registry_v1.csv
   source_post_registry: source_post_registry_v1.csv
@@ -264,6 +265,14 @@ simple_calibration:
   min_drop: 0.5
   min_recovery: 0.5
   max_placebo_nonresponse: 0.2
+  # Formal v5 calibration uses the preregistered state-event registry rather
+  # than every generally eligible schedule record.  Direct oblast evidence is
+  # the primary estimand; operator-service-area evidence is proxy robustness.
+  primary_evidence_tiers:
+  - primary_A
+  - primary_Aplus
+  proxy_evidence_tiers:
+  - proxy
 
 matching:
   exact_same_asn: true

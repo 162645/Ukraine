@@ -239,9 +239,10 @@ def run(cfg: Config) -> dict:
         outdir = cfg.out_dir("data_derived") / "sensor_event_panel"
         outdir.mkdir(exist_ok=True)
         written = []
-        available_ids = set(ev.available_df.event_id)
-        available_events = [event for _, event in ev.df.iterrows()
-                            if event.event_id in available_ids]
+        # The v5 state-sensitivity validation opens only independent energy
+        # attacks.  Legacy national planned-outage rows are calibration history,
+        # not event panels for this formal experiment.
+        available_events = [event for _, event in ev.attacks.iterrows()]
         progress = HeartbeatProgress(logger, "sensorPanels.events", total=len(available_events),
                                      unit="event", log_every_n=1, log_every_s=45.0)
         progress.start(total_parts=len(parts))

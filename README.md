@@ -42,9 +42,11 @@ The frozen protocol is documented in
 
 Only three reader-facing calibration artifacts are central:
 
-- `candidate_ips.parquet`: quality-eligible measured endpoints.
-- `calibration_events.csv`: eligible Admin1-date scheduled-outage events.
-- `calibrated_sensors.csv`: frozen per-IP `S_reach`, `S_rtt`, support counts,
+- `ip_sensitivity_labels.csv`: one row per measured IP, including B1 status and
+  an explicit reason when a primary sensitivity cannot be estimated.
+- `calibration_events.csv`: the frozen A/A+ direct-oblast and proxy event whitelist.
+- `calibrated_sensors.csv`: frozen per-IP primary `S_reach`, `S_rtt`, proxy-augmented
+  robustness scores, support counts,
   and within-state sensitivity strata.
 - `exp_b_state_sensitivity_validation.csv`: frozen high-versus-low sensitivity
   comparisons within each attack-affected state.

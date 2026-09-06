@@ -262,6 +262,19 @@ class Config:
             df["schedule_positive"] = pd.to_numeric(df.get("queue_count"), errors="coerce").gt(0)
         return df
 
+    def load_calibration_event_registry(self):
+        """Load the frozen whitelist defining the formal state calibration."""
+        import pandas as pd
+        p = self.resource_path("calibration_event_registry")
+        df = pd.read_csv(p, dtype=str, keep_default_na=False)
+        required = {"registry_id", "geo_name", "event_date", "evidence_tier", "scope_requirement"}
+        missing = required.difference(df.columns)
+        if missing:
+            raise ValueError(f"calibration event registry missing columns: {sorted(missing)}")
+        if df.duplicated(["geo_name", "event_date"]).any():
+            raise ValueError("calibration event registry has duplicate state-date entries")
+        return df
+
     def _load_aux_registry(self, freeze_key: str, datetime_columns: tuple[str, ...]):
         import pandas as pd
         df = pd.read_csv(self.resource_path(freeze_key), dtype=str, keep_default_na=False)
@@ -286,7 +299,7 @@ class Config:
 
     def frozen_hashes(self) -> dict[str, str]:
         out = {"config": file_sha256(self.config_path)}
-        for key in ("event_registry", "schedule_registry", "oblast_execution_registry",
+        for key in ("event_registry", "schedule_registry", "calibration_event_registry", "oblast_execution_registry",
                     "weather_episode_registry", "source_post_registry", "exposure_registry",
                     "mapping_manifest", "admin1_aliases"):
             out[key] = file_sha256(self.resource_path(key))

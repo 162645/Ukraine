@@ -1,0 +1,35 @@
+registry_id,geo_name,event_date,evidence_tier,scope_requirement,analysis_role,reason_zh,explicit_clear_start_utc,explicit_clear_end_utc
+CEV001,Volyn Oblast,2024-06-01,primary_A,oblast,primary,官方DSO州级最终窗口
+CEV002,Volyn Oblast,2024-06-02,primary_A,oblast,primary,官方DSO州级最终窗口
+CEV003,Volyn Oblast,2024-06-03,primary_A,oblast,primary,完整州级窗口
+CEV004,Volyn Oblast,2024-06-04,primary_A,oblast,primary,完整州级窗口
+CEV005,Volyn Oblast,2024-06-05,primary_A,oblast,primary,完整州级窗口
+CEV006,Volyn Oblast,2024-06-06,primary_A,oblast,primary,完整州级窗口
+CEV007,Volyn Oblast,2024-06-07,primary_A,oblast,primary,完整州级窗口
+CEV008,Poltava Oblast,2024-07-17,primary_A,oblast,primary,官方州级计划
+CEV009,Poltava Oblast,2024-07-18,primary_A,oblast,primary,官方州级计划
+CEV010,Volyn Oblast,2024-07-17,primary_A,oblast,primary,官方DSO最终记录
+CEV011,Volyn Oblast,2024-07-18,primary_A,oblast,primary,官方DSO最终记录
+CEV012,Volyn Oblast,2024-07-19,primary_A,oblast,primary,官方DSO最终记录
+CEV013,Volyn Oblast,2024-07-20,primary_A,oblast,primary,官方DSO最终记录
+CEV014,Poltava Oblast,2024-07-21,primary_Aplus,oblast,primary,明确不限电窗口
+CEV015,Volyn Oblast,2024-07-21,primary_Aplus,oblast,primary,明确不限电窗口,2024-07-21 09:00:00+00:00,2024-07-21 12:00:00+00:00
+CEV016,Volyn Oblast,2024-07-22,primary_A,oblast,primary,官方DSO最终记录
+CEV017,Volyn Oblast,2024-07-23,primary_A,oblast,primary,官方DSO最终记录
+CEV018,Cherkasy Oblast,2024-07-24,primary_A,oblast,primary,官方DSO最终调度窗口
+CEV019,Volyn Oblast,2024-07-25,primary_A,oblast,primary,官方DSO窗口
+CEV020,Cherkasy Oblast,2024-07-25,primary_Aplus,oblast,primary,明确取消后恢复计划停电
+CEV021,Volyn Oblast,2024-07-27,primary_A,oblast,primary,官方DSO窗口
+CEV022,Volyn Oblast,2024-07-28,primary_A,oblast,primary,官方DSO窗口
+CEV023,Zaporizhzhia Oblast,2024-09-06,primary_Aplus,oblast,primary,明确取消窗口夹在停电窗口之间
+CEV024,Khmelnytskyi Oblast,2024-06-02,proxy,operator_service_area,proxy,官方运营商服务区代理
+CEV025,Khmelnytskyi Oblast,2024-07-18,proxy,operator_service_area,proxy,官方DSO服务区代理
+CEV026,Odesa Oblast,2024-07-25,proxy,operator_service_area,proxy,DTEK Odesa服务区代理
+CEV027,Odesa Oblast,2024-07-29,proxy,operator_service_area,proxy,DTEK Odesa服务区代理
+CEV028,Zakarpattia Oblast,2024-07-21,proxy,operator_service_area,proxy,州运营商服务区代理
+CEV029,Zakarpattia Oblast,2024-07-25,proxy,operator_service_area,proxy,最终更新服务区代理
+CEV030,Zakarpattia Oblast,2024-07-27,proxy,operator_service_area,proxy,官方DSO服务区代理
+CEV031,Zhytomyr Oblast,2024-07-28,proxy,operator_service_area,proxy,官方DSO服务区代理
+CEV032,Vinnytsia Oblast,2024-07-28,proxy,operator_service_area,proxy,州运营商引用服务区代理
+CEV033,Kirovohrad Oblast,2024-07-20,proxy,operator_service_area,proxy,官方DSO队列覆盖服务区代理
+CEV034,Mykolaiv Oblast,2024-07-29,proxy,operator_service_area,proxy,官方DSO服务区代理

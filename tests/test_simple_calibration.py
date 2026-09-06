@@ -44,6 +44,22 @@ def test_national_schedule_is_not_a_calibration_label():
     assert segments.empty
 
 
+def test_formal_registry_is_a_whitelist_and_preserves_evidence_tier():
+    schedule = pd.DataFrame([
+        {"analysis_eligible": 1, "publication_eligible": 1, "confound_free": 1,
+         "schedule_positive": 1, "scope_type_norm": "oblast", "affected_admin1": "A",
+         "event_date": "2024-07-01", "start_utc": "2024-07-01T08:00:00Z", "end_utc": "2024-07-01T10:00:00Z"},
+        {"analysis_eligible": 1, "publication_eligible": 1, "confound_free": 1,
+         "schedule_positive": 1, "scope_type_norm": "oblast", "affected_admin1": "A",
+         "event_date": "2024-07-02", "start_utc": "2024-07-02T08:00:00Z", "end_utc": "2024-07-02T10:00:00Z"},
+    ])
+    registry = pd.DataFrame([{"registry_id": "x", "geo_name": "A", "event_date": "2024-07-01",
+                              "evidence_tier": "primary_Aplus", "scope_requirement": "oblast"}])
+    events, _ = build_calibration_events(schedule, {"A"}, registry)
+    assert events.event_id.tolist() == ["CAL_A_20240701"]
+    assert events.evidence_tier.tolist() == ["primary_Aplus"]
+
+
 def test_clear_windows_are_retained_and_consecutive_days_share_an_episode():
     schedule = pd.DataFrame([
         {"analysis_eligible": 1, "publication_eligible": 1, "confound_free": 1,
