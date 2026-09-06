@@ -102,7 +102,16 @@ class CHClient:
                 )
 
     def _connect(self):
+        import os
         db = self.cfg.db_conn()
+        # Institutional hosts commonly define a desktop proxy that cannot
+        # reach the private ClickHouse address. Always bypass proxies for the
+        # explicitly configured database host.
+        for key in ("NO_PROXY", "no_proxy"):
+            values = [x for x in os.environ.get(key, "").split(",") if x]
+            if db["host"] not in values:
+                values.append(str(db["host"]))
+            os.environ[key] = ",".join(values)
         order = [self._prefer] + [b for b in ("connect", "driver") if b != self._prefer]
         preferred_settings = self._settings_for_user()
         setting_attempts = [preferred_settings]

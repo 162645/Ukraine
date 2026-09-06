@@ -313,7 +313,22 @@ def load_config(config_path: str | os.PathLike | None = None, *, run_id: str | N
     base_path = root / "config" / "experiment_v2.yaml"
     if p != base_path.resolve():
         with base_path.open(encoding="utf-8") as f:
-            raw = _deep_merge(yaml.safe_load(f) or {}, selected)
+            base_raw = yaml.safe_load(f) or {}
+        # Local files carry connection and machine-capacity settings only.
+        # An old full-copy YAML must never silently replace the frozen design.
+        runtime_keys = {
+            "max_memory_gb", "ch_max_memory_usage_frac", "ch_external_group_by_frac",
+            "ch_external_sort_frac", "ch_max_threads", "ch_query_retries",
+            "ch_retry_backoff_seconds", "fetch_block_rows", "prefix_batch",
+            "panel_batch_days", "trace_prefix_batch",
+        }
+        override = {}
+        if isinstance(selected.get("database"), dict):
+            override["database"] = selected["database"]
+        if isinstance(selected.get("runtime"), dict):
+            override["runtime"] = {k: v for k, v in selected["runtime"].items()
+                                   if k in runtime_keys}
+        raw = _deep_merge(base_raw, override)
     else:
         raw = selected
     if run_id is None:
