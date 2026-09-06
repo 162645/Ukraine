@@ -1,10 +1,11 @@
-"""Simple weak-supervision calibration from regional scheduled outages.
+"""State-level planned-outage weak supervision for continuous IP sensitivity.
 
-The selector deliberately does not infer an IP's power operator or queue.  A
-regional schedule is only a candidate exposure window.  An endpoint is retained
-when it is stable before the window, loses reachability inside the window, and
-recovers afterwards.  Independent unplanned energy shocks provide the external
-validation in later pipeline stages.
+Planned outages are not used to label an endpoint as electrically powered or
+not.  For every stable IP in an explicitly covered state we compare a scheduled
+outage cycle with clean, same-state, same-weekday-and-slot cycles.  The frozen
+outputs are two separate continuous quantities: reachability sensitivity and
+conditional RTT sensitivity.  War attacks are never used here; they are opened
+only after these scores have been frozen.
 """
 from __future__ import annotations
 
@@ -163,28 +164,32 @@ def event_cycle_sets(event: pd.Series, segments: pd.DataFrame, grid: pd.DataFram
 
 
 def score_event_rows(raw: pd.DataFrame, cycle_sets: dict[str, list[int]], cfg: Config) -> pd.DataFrame:
-    """Apply the frozen single-event stable-drop-recovery rule."""
+    """Score one state-level planned-outage event without outcome thresholding."""
     d = raw.copy()
     scfg = cfg.simple_calibration
     for phase in ("normal", "pre", "outage", "post"):
         n = len(cycle_sets[phase])
         d[f"n_{phase}"] = n
         d[f"p_{phase}"] = pd.to_numeric(d[f"x_{phase}"], errors="coerce").fillna(0) / max(n, 1)
+    # The matched normal cycles, rather than the immediately preceding period,
+    # define the registered counterfactual.  ``pre``/``post`` remain diagnostic
+    # fields only: a real planned outage can span most of a day.
+    d["s_reach_event"] = d.p_normal - d.p_outage
     d["drop"] = d.p_pre - d.p_outage
     d["recovery"] = d.p_post - d.p_outage
-    d["signature"] = d[["drop", "recovery"]].min(axis=1)
     d["placebo_nonresponse"] = 1.0 - d.p_normal
-    enough = (d.n_normal.ge(int(scfg["min_normal_cycles"])) &
-              d.n_pre.ge(int(scfg["min_pre_cycles"])) &
-              d.n_outage.ge(int(scfg["min_outage_cycles"])) &
-              d.n_post.ge(int(scfg["min_post_cycles"])))
-    d["is_event_candidate"] = (
-        enough & d.p_normal.ge(float(scfg["stable_reach_rate"])) &
-        d.p_pre.ge(float(scfg["stable_reach_rate"])) &
-        d["drop"].ge(float(scfg["min_drop"])) &
-        d["recovery"].ge(float(scfg["min_recovery"])) &
-        d["placebo_nonresponse"].le(float(scfg["max_placebo_nonresponse"]))
+    normal_rtt = pd.to_numeric(d.get("rtt_normal", pd.Series(np.nan, index=d.index)), errors="coerce")
+    outage_rtt = pd.to_numeric(d.get("rtt_outage", pd.Series(np.nan, index=d.index)), errors="coerce")
+    d["s_rtt_event"] = (outage_rtt - normal_rtt) / normal_rtt.where(normal_rtt.gt(0))
+    d["rtt_estimable"] = normal_rtt.gt(0) & outage_rtt.notna()
+    d["is_event_usable"] = (
+        d.n_normal.ge(int(scfg["min_normal_cycles"])) &
+        d.n_outage.ge(int(scfg["min_outage_cycles"])) &
+        d.p_normal.ge(float(scfg["stable_reach_rate"]))
     )
+    # Compatibility alias for downstream readers of early run artifacts.  It
+    # now means usable state-level evidence, never a positive/negative label.
+    d["is_event_candidate"] = d["is_event_usable"]
     return d
 
 
@@ -219,27 +224,44 @@ def _query_event(ch: CHClient, cfg: Config, targets: pd.DataFrame,
                      on=["dst_ip", "prefix24"], how="inner", validate="many_to_one")
 
 
+def _within_state_tertile(frame: pd.DataFrame, column: str, output: str) -> pd.Series:
+    """Frozen low/middle/high strata, calculated independently within a state."""
+    out = pd.Series(pd.NA, index=frame.index, dtype="string")
+    for _, index in frame.groupby("target_admin1").groups.items():
+        values = pd.to_numeric(frame.loc[index, column], errors="coerce")
+        if values.notna().sum() < 3 or values.nunique(dropna=True) < 3:
+            continue
+        ranks = values.rank(method="average", pct=True)
+        out.loc[index] = pd.cut(ranks, [0, 1 / 3, 2 / 3, 1],
+                                labels=["low", "middle", "high"], include_lowest=True).astype("string")
+    return out
+
+
 def aggregate_sensors(candidates: pd.DataFrame) -> pd.DataFrame:
-    """Collapse event candidates to one auditable row per calibrated endpoint."""
+    """Freeze continuous per-IP sensitivity from repeated state outage events."""
     if candidates.empty:
         return pd.DataFrame(columns=["dst_ip", "support_event_n", "sensor_score", "is_power_sensitive"])
-    d = candidates[candidates.is_event_candidate.astype(bool)].copy()
+    usable = candidates.get("is_event_usable", candidates.get("is_event_candidate", False))
+    d = candidates[pd.Series(usable, index=candidates.index).astype(bool)].copy()
     if d.empty:
         return pd.DataFrame(columns=["dst_ip", "support_event_n", "sensor_score", "is_power_sensitive"])
-    strongest = d.sort_values(["dst_ip", "signature"], ascending=[True, False]).drop_duplicates("dst_ip")
-    summary = (d.groupby("dst_ip", as_index=False)
+    identity = [c for c in ("dst_ip", "prefix24", "target_admin1", "target_city",
+                            "target_isp_domain", "target_asn", "network_stratum") if c in d]
+    summary = (d.groupby(identity, as_index=False)
                .agg(support_event_n=("event_id", "nunique"),
-                    median_drop=("drop", "median"), median_recovery=("recovery", "median"),
-                    sensor_score=("signature", "max")))
-    keep = [c for c in ("dst_ip", "prefix24", "target_admin1", "target_city",
-                        "target_isp_domain", "target_asn", "network_stratum", "event_id",
-                        "pre_reach", "outage_reach", "post_reach", "drop", "recovery") if c in strongest]
-    strongest = strongest[keep].rename(columns={"event_id": "calibration_event_id",
-                                                "drop": "strongest_drop",
-                                                "recovery": "strongest_recovery"})
-    out = strongest.merge(summary, on="dst_ip", how="inner", validate="one_to_one")
-    out["is_power_sensitive"] = True
-    return out.sort_values(["sensor_score", "dst_ip"], ascending=[False, True]).reset_index(drop=True)
+                    s_reach=("s_reach_event", "mean"),
+                    s_reach_median=("s_reach_event", "median"),
+                    s_rtt=("s_rtt_event", "mean"),
+                    s_rtt_event_n=("rtt_estimable", "sum"),
+                    normal_reach=("p_normal", "mean"), outage_reach=("p_outage", "mean"),
+                    diagnostic_pre_drop=("drop", "mean"), diagnostic_recovery=("recovery", "mean")))
+    summary["s_reach_tier"] = _within_state_tertile(summary, "s_reach", "s_reach_tier")
+    summary["s_rtt_tier"] = _within_state_tertile(summary, "s_rtt", "s_rtt_tier")
+    summary["calibration_design"] = "state_same_slot_clean_cycle"
+    # This flag is intentionally not used for method selection.  It preserves
+    # a readable indicator that a score is supported by at least one event.
+    summary["is_power_sensitive"] = summary["support_event_n"].gt(0)
+    return summary.sort_values(["target_admin1", "s_reach", "dst_ip"], ascending=[True, False, True]).reset_index(drop=True)
 
 
 def run(cfg: Config) -> dict:
@@ -294,7 +316,7 @@ def run(cfg: Config) -> dict:
                             scored["pre_reach"] = scored.p_pre
                             scored["outage_reach"] = scored.p_outage
                             scored["post_reach"] = scored.p_post
-                            selected = scored[scored.is_event_candidate].copy()
+                            selected = scored[scored.is_event_usable].copy()
                         selected.to_parquet(path, index=False)
                 if not selected.empty:
                     candidate_parts.append(selected)
@@ -303,10 +325,10 @@ def run(cfg: Config) -> dict:
                     "normal_cycle_n": len(cycles["normal"]), "pre_cycle_n": len(cycles["pre"]),
                     "outage_cycle_n": len(cycles["outage"]), "post_cycle_n": len(cycles["post"]),
                     "candidate_ip_pool_n": int(region_targets.dst_ip.nunique()),
-                    "selected_ip_n": int(selected.dst_ip.nunique()) if not selected.empty else 0,
+                    "scored_stable_ip_n": int(selected.dst_ip.nunique()) if not selected.empty else 0,
                     "estimable": int(estimable), "event_index": int(index + 1),
                 })
-                logger.info("calibration event %d/%d %s estimable=%s selected=%d",
+                logger.info("calibration event %d/%d %s estimable=%s scored_stable=%d",
                             index + 1, len(events), event_id, estimable,
                             0 if selected.empty else selected.dst_ip.nunique())
     candidates = pd.concat(candidate_parts, ignore_index=True) if candidate_parts else pd.DataFrame()
@@ -319,8 +341,8 @@ def run(cfg: Config) -> dict:
     summary = {
         "candidate_ip_n": int(targets.dst_ip.nunique()), "calibration_event_n": int(len(events)),
         "estimable_event_n": int(audit.estimable.sum()), "calibrated_sensor_n": int(len(sensors)),
-        "repeated_support_sensor_n": int(sensors.support_event_n.ge(2).sum()) if not sensors.empty else 0,
-        "claim_scope": "scheduled-outage-calibrated candidate sensors; not IP-level electrical ground truth",
+        "repeated_support_ip_n": int(sensors.support_event_n.ge(2).sum()) if not sensors.empty else 0,
+        "claim_scope": "frozen continuous state-level planned-outage sensitivity; not IP-level electrical ground truth",
     }
     summary_path = rt / "calibration_summary.json"
     summary_path.write_text(json.dumps(summary, indent=2, ensure_ascii=False), encoding="utf-8")

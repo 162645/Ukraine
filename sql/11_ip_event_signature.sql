@@ -13,6 +13,10 @@ SELECT
          intDiv(toUnixTimestamp(measure_time), {cycle_seconds}) IN ({outage_cids})) AS x_outage,
   uniqIf(intDiv(toUnixTimestamp(measure_time), {cycle_seconds}),
          intDiv(toUnixTimestamp(measure_time), {cycle_seconds}) IN ({post_cids})) AS x_post
+  ,quantileExactIf(0.5)(rtt_ms,
+         intDiv(toUnixTimestamp(measure_time), {cycle_seconds}) IN ({normal_cids})) AS rtt_normal
+  ,quantileExactIf(0.5)(rtt_ms,
+         intDiv(toUnixTimestamp(measure_time), {cycle_seconds}) IN ({outage_cids})) AS rtt_outage
 FROM {ping}
 WHERE data_center = '{dc}'
   AND prefix24 IN ({prefix_in})

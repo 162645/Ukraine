@@ -12,7 +12,7 @@ def test_full_local_copy_cannot_override_frozen_science(tmp_path):
         "runtime": {"max_memory_gb": 48, "random_seed": 1},
     }), encoding="utf-8")
     cfg = load_config(path, run_id="scope-test", mode="real")
-    assert cfg.raw["freeze"]["plan_version"] == "analysis_plan_v5_simple_outage_calibration"
+    assert cfg.raw["freeze"]["plan_version"] == "analysis_plan_v5_state_continuous_sensitivity"
     assert cfg.simple_calibration["min_drop"] == 0.5
     assert cfg.database["host"] == "db.internal"
     assert cfg.runtime["max_memory_gb"] == 48

@@ -1,5 +1,5 @@
 freeze:
-  plan_version: analysis_plan_v5_simple_outage_calibration
+  plan_version: analysis_plan_v5_state_continuous_sensitivity
   frozen: true
   measurement_view: AWS_Frankfurt_to_Ukraine
   event_registry: event_registry_v2.csv
@@ -246,8 +246,10 @@ calibration:
     - official_heat_warning
     role: confound_control_not_treatment
 simple_calibration:
-  # Frozen single-event rule. A regional schedule is a weak exposure window;
-  # power-operator and queue membership are never imputed for an IP.
+  # State-level continuous weak supervision.  A regional schedule is a weak
+  # exposure window; operator/queue membership is never imputed for an IP.
+  # Every stable IP retains separate S_reach and conditional S_rtt estimates,
+  # aggregated across its independent same-state, same-weekday-slot contrasts.
   pre_window_h: 12
   post_window_h: 12
   transition_buffer_minutes: 30

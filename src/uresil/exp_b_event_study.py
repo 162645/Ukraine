@@ -47,6 +47,7 @@ EXP_B_COMPONENTS = (
     "balances",
     "universe_sensitivity",
     "mean_curves",
+    "state_sensitivity",
 )
 
 
@@ -346,6 +347,65 @@ def state_time_from_panel(panel: pd.DataFrame, event: pd.Series, estimand: Event
                      "reach_dev": mean, "ci_lo": lo, "ci_hi": hi,
                      "p_value": _p_from_ci(mean, lo, hi), "n_prefix": int(g[unit].nunique())})
     return pd.DataFrame(rows)
+
+
+def frozen_state_sensitivity_validation(panel: pd.DataFrame, event: pd.Series,
+                                        estimand: EventEstimand, cfg: Config) -> pd.DataFrame:
+    """Compare frozen low/high IP sensitivity strata inside each affected state.
+
+    Strata come solely from planned-outage data before an attack panel is read.
+    This reports whether high-sensitivity endpoints in the same affected state
+    have larger reach deficits, accumulated deficits, or conditional RTT change.
+    """
+    if panel.empty or "sensitivity_stratum" not in panel:
+        return pd.DataFrame()
+    d = panel[(~panel["target_admin1"].isin(INVALID_ADMIN1)) &
+              panel["sensitivity_stratum"].isin(["low", "middle", "high"])].copy()
+    affected = set(estimand.treated_admin1)
+    if affected != {"ALL"}:
+        d = d[d["target_admin1"].isin(affected)].copy()
+    if d.empty:
+        return pd.DataFrame()
+    unit = _unit_col(d)
+    clean = d[d["is_clean_baseline"].eq(1)].copy()
+    if clean.empty:
+        return pd.DataFrame()
+    base_keys = [unit, "slot"] if "slot" in d else [unit]
+    base = (clean.groupby(base_keys)
+            .agg(reach_base=("normalized_reach", "median"), rtt_base=("rtt_median", "median"))
+            .reset_index())
+    d = d.merge(base, on=base_keys, how="left")
+    d["reach_deviation"] = d["normalized_reach"] - d["reach_base"]
+    d["rtt_relative_change"] = ((d["rtt_median"] - d["rtt_base"])
+                                / d["rtt_base"].where(d["rtt_base"].gt(0)))
+    outcome = d[d["stage"].eq("outcome")].copy()
+    if outcome.empty:
+        return pd.DataFrame()
+    cycle_h = float(cfg.study["expected_cycle_interval_hours"])
+    rows = []
+    for (admin1, metric, tier), g in outcome.groupby(["target_admin1", "method", "sensitivity_stratum"]):
+        rows.append({
+            "event_id": event["event_id"], "estimand_id": estimand.estimand_id,
+            "analysis_role": event["analysis_role"], "claim_scope": estimand.claim_scope,
+            "admin1": admin1, "sensitivity_metric": metric, "sensitivity_stratum": tier,
+            "n_analysis_unit": int(g[unit].nunique()),
+            "mean_reach_deviation": float(g["reach_deviation"].mean()),
+            "mean_reach_deficit": float((-g["reach_deviation"]).clip(lower=0).mean()),
+            "accumulated_reach_deficit": float((-g["reach_deviation"]).clip(lower=0).mean()
+                                                * len(g["rel_bin"].unique()) * cycle_h),
+            "mean_rtt_relative_change": (float(g["rtt_relative_change"].mean())
+                                         if g["rtt_relative_change"].notna().any() else np.nan),
+        })
+    out = pd.DataFrame(rows)
+    if out.empty:
+        return out
+    key = ["event_id", "estimand_id", "admin1", "sensitivity_metric"]
+    for value in ("mean_reach_deficit", "accumulated_reach_deficit", "mean_rtt_relative_change"):
+        wide = out.pivot_table(index=key, columns="sensitivity_stratum", values=value, aggfunc="first")
+        if {"high", "low"}.issubset(wide.columns):
+            contrast = (wide["high"] - wide["low"]).rename(f"high_minus_low_{value}").reset_index()
+            out = out.merge(contrast, on=key, how="left")
+    return out
 
 
 def event_mean_curve(panel: pd.DataFrame, event: pd.Series, estimand: EventEstimand) -> pd.DataFrame:
@@ -703,6 +763,15 @@ def run(cfg: Config) -> dict:
                     mc = event_mean_curve(panel, event, estimand)
                     if not mc.empty:
                         _append_component(event_store, "mean_curves", mc)
+                    for sensitivity_method in ("S_REACH", "S_RTT"):
+                        sp = load_event_panel(cfg, event, method=sensitivity_method,
+                                              anchor=estimand.anchor_utc)
+                        if sp.empty:
+                            continue
+                        sv = frozen_state_sensitivity_validation(
+                            annotate_design(sp, event, estimand, cfg), event, estimand, cfg)
+                        if not sv.empty:
+                            _append_component(event_store, "state_sensitivity", sv)
                     universes = target_universe_panels(panel, national)
                     universe_progress = HeartbeatProgress(logger, f"expB.universe.{event_id}.{estimand.estimand_id}",
                                                           total=len(universes), unit="universe",
@@ -846,6 +915,7 @@ def run(cfg: Config) -> dict:
         "exp_b_method_sensitivity.csv": _concat_frames(attack_store["method_sensitivity"]),
         "exp_b_target_universe_sensitivity.csv": _concat_frames(attack_store["universe_sensitivity"]),
         "exp_b_matching_balance.csv": _concat_frames(attack_store["balances"]),
+        "exp_b_state_sensitivity_validation.csv": _concat_frames(attack_store["state_sensitivity"]),
     }
     for name, d in outmap.items():
         logger.info("expB reducer write: %s rows=%d", name, len(d))

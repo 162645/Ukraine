@@ -18,7 +18,7 @@ from .db import CHClient
 from .events import Events
 from .progress import HeartbeatProgress, get_logger, pbar, step
 
-METHODS = ("B1", "B2")
+METHODS = ("B1", "B2", "S_REACH", "S_RTT")
 
 
 def _force_recompute(cfg: Config) -> bool:
@@ -68,9 +68,12 @@ def score_parts(cfg: Config) -> list[str]:
 def _calibrated_membership(cfg: Config) -> pd.DataFrame:
     path = cfg.out_dir("data_derived") / "calibrated_sensors.parquet"
     if not _readable_parquet(path):
-        return pd.DataFrame(columns=["dst_ip", "is_power_sensitive"])
-    d = pd.read_parquet(path, columns=["dst_ip", "is_power_sensitive"])
-    return d[d.is_power_sensitive.astype(bool)].drop_duplicates("dst_ip")
+        return pd.DataFrame(columns=["dst_ip", "is_power_sensitive", "s_reach", "s_rtt",
+                                     "s_reach_tier", "s_rtt_tier"])
+    d = pd.read_parquet(path)
+    cols = [c for c in ("dst_ip", "is_power_sensitive", "s_reach", "s_rtt",
+                        "s_reach_tier", "s_rtt_tier") if c in d]
+    return d[cols].drop_duplicates("dst_ip")
 
 
 def _read_sensor_part(cfg: Config, path: str, columns: list[str]) -> pd.DataFrame:
@@ -78,13 +81,16 @@ def _read_sensor_part(cfg: Config, path: str, columns: list[str]) -> pd.DataFram
     membership = _calibrated_membership(cfg)
     d = d.drop(columns=["in_B2"], errors="ignore")
     d = d.merge(membership, on="dst_ip", how="left", validate="many_to_one")
-    d["in_B2"] = (d["in_B1"].astype(bool) &
-                   d["is_power_sensitive"].fillna(False).astype(bool))
+    # Sensitivity remains continuous; no attack-informed or thresholded B2 set
+    # is allowed to become the primary analysis sample.
+    d["in_B2"] = False
+    d["in_S_REACH"] = d["in_B1"].astype(bool) & d.get("s_reach_tier", pd.Series(pd.NA, index=d.index)).notna()
+    d["in_S_RTT"] = d["in_B1"].astype(bool) & d.get("s_rtt_tier", pd.Series(pd.NA, index=d.index)).notna()
     return d
 
 
 def choose_primary_method(cfg: Config) -> str:
-    return "B2" if not _calibrated_membership(cfg).empty else "B1"
+    return "B1"
 
 
 def build_denominators(cfg: Config, parts: list[str]) -> pd.DataFrame:
@@ -93,24 +99,29 @@ def build_denominators(cfg: Config, parts: list[str]) -> pd.DataFrame:
             "network_stratum", "pN", "in_B1", "in_B2"]
     for p in pbar(parts, desc="sensor denominators", unit="part"):
         d = _read_sensor_part(cfg, p, cols)
-        group_cols = ["prefix24", "target_asn", "target_country", "target_admin1",
-                      "network_stratum"]
+        group_cols = ["prefix24", "target_asn", "target_country", "target_admin1", "network_stratum"]
         for m in METHODS:
-            z = d[d[f"in_{m}"]]
+            z = d[d.get(f"in_{m}", False)].copy()
             if z.empty:
                 continue
-            rows.append(z.groupby(group_cols)
+            z["sensitivity_stratum"] = "all"
+            if m == "S_REACH":
+                z["sensitivity_stratum"] = z["s_reach_tier"].astype(str)
+            elif m == "S_RTT":
+                z["sensitivity_stratum"] = z["s_rtt_tier"].astype(str)
+            rows.append(z.groupby([*group_cols, "sensitivity_stratum"])
                         .agg(sensor_n=("pN", "size"), expected_response_n=("pN", "sum"))
                         .reset_index().assign(method=m))
     if not rows:
         return pd.DataFrame()
     out = (pd.concat(rows, ignore_index=True)
            .groupby(["prefix24", "target_asn", "target_country", "target_admin1",
-                     "network_stratum", "method"])
+                     "network_stratum", "sensitivity_stratum", "method"])
            .agg(sensor_n=("sensor_n", "sum"), expected_response_n=("expected_response_n", "sum"))
            .reset_index())
+    out["sensitivity_stratum"] = out.get("sensitivity_stratum", "all")
     out["group"] = (out.network_stratum.astype(str) + "|" + out.target_asn.astype(str) + "|" + out.target_country.astype(str)
-                    + "|" + out.target_admin1.astype(str))
+                    + "|" + out.target_admin1.astype(str) + "|" + out.sensitivity_stratum.astype(str))
     out["analysis_unit_id"] = out.prefix24.astype(str) + "|" + out.group
     out["regional_eligible"] = (~out.target_admin1.isin(
         ["COUNTRY_ONLY_UA", "UNKNOWN_ADMIN1", "UNMAPPED_UA_ADMIN1"])).astype("int8")
@@ -127,30 +138,35 @@ def _event_responses(cfg: Config, ch: CHClient, event: pd.Series, parts: list[st
             "network_stratum", "in_B1", "in_B2"]
     for p in pbar(parts, desc=f"sensor responses {event['event_id']}", unit="part"):
         sensors = _read_sensor_part(cfg, p, cols)
-        sensors = sensors[sensors.in_B1 | sensors.in_B2]
+        sensors = sensors[sensors.in_B1 | sensors.in_B2 | sensors.in_S_REACH | sensors.in_S_RTT]
         if sensors.empty:
             continue
-        sensors["group"] = (sensors.network_stratum.astype(str) + "|" + sensors.target_asn.astype(str) + "|" + sensors.target_country.astype(str)
-                            + "|" + sensors.target_admin1.astype(str))
-        sensors["analysis_unit_id"] = sensors.prefix24.astype(str) + "|" + sensors.group
         prefixes = sensors.prefix24.drop_duplicates().astype(str).tolist()
         r = _query_response_window(cfg, ch, event_id=str(event["event_id"]), lo=lo, hi=hi,
                                    prefixes=prefixes, cycle_seconds=h * 3600, logger=logger)
         if r.empty:
             continue
         r = r.merge(sensors, on=["dst_ip", "prefix24"], how="inner")
-        key = ["cycle_id", "prefix24", "target_asn", "target_country", "target_admin1", "network_stratum",
-               "group", "analysis_unit_id"]
         for m in METHODS:
-            z = r[r[f"in_{m}"]]
+            z = r[r.get(f"in_{m}", False)].copy()
             if not z.empty:
+                z["sensitivity_stratum"] = "all"
+                if m == "S_REACH":
+                    z["sensitivity_stratum"] = z["s_reach_tier"].astype(str)
+                elif m == "S_RTT":
+                    z["sensitivity_stratum"] = z["s_rtt_tier"].astype(str)
+                z["group"] = (z.network_stratum.astype(str) + "|" + z.target_asn.astype(str) + "|" + z.target_country.astype(str)
+                              + "|" + z.target_admin1.astype(str) + "|" + z.sensitivity_stratum.astype(str))
+                z["analysis_unit_id"] = z.prefix24.astype(str) + "|" + z.group
+                key = ["cycle_id", "prefix24", "target_asn", "target_country", "target_admin1", "network_stratum",
+                       "sensitivity_stratum", "group", "analysis_unit_id"]
                 num.append(z.groupby(key).agg(
                     responders=("dst_ip", "nunique"), rtt_median=("rtt_ms", "median"))
                            .reset_index().assign(method=m))
     if not num:
         return pd.DataFrame(columns=["cycle_id", "analysis_unit_id", "method", "responders", "rtt_median"])
     key = ["cycle_id", "prefix24", "target_asn", "target_country", "target_admin1", "network_stratum",
-           "group", "analysis_unit_id", "method"]
+           "sensitivity_stratum", "group", "analysis_unit_id", "method"]
     return (pd.concat(num, ignore_index=True).groupby(key)
             .agg(responders=("responders", "sum"), rtt_median=("rtt_median", "median")).reset_index())
 
@@ -256,8 +272,9 @@ def run(cfg: Config) -> dict:
         calibrated_overlay = not _calibrated_membership(cfg).empty
         pd.DataFrame([{
             "primary_sensor_method": primary,
-            "b2_sensor_source": "single_event_stable_drop_recovery" if calibrated_overlay else "none",
-            "calibration_positive": int(primary == "B2"),
+            "b2_sensor_source": "retired_continuous_state_sensitivity_design" if calibrated_overlay else "none",
+            "calibration_positive": 0,
+            "state_sensitivity_overlay": int(calibrated_overlay),
             "n_B1_sensor": int(denom.loc[denom.method.eq("B1"), "sensor_n"].sum()),
             "n_B2_sensor": int(denom.loc[denom.method.eq("B2"), "sensor_n"].sum()),
             "n_B1_regional_sensor": int(denom.loc[denom.method.eq("B1") & denom.regional_eligible.eq(1), "sensor_n"].sum()),

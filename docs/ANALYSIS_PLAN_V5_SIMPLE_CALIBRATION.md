@@ -1,10 +1,10 @@
-# Analysis plan v5: simple regional scheduled-outage calibration
+# Analysis plan v5: state-level continuous outage sensitivity
 
 ## Research question
 
-Can regional scheduled outages calibrate IP endpoints that are unusually
-responsive to power interruptions, and do those frozen endpoints improve
-observation of independent unplanned energy shocks and recovery?
+Can state-level scheduled outages estimate continuous IP-level reachability and
+RTT sensitivity, and do those frozen sensitivities describe within-state
+network loss and recovery during independent energy attacks?
 
 ## Calibration population
 
@@ -28,35 +28,40 @@ Actual execution intervals replace planned intervals only when both actual start
 and actual end are available and ordered. Cancelled and national rows do not
 calibrate endpoints.
 
-## Frozen endpoint rule
+## Frozen continuous IP sensitivity
 
 For endpoint i and scheduled-outage event e:
 
-- `drop = pre_reach - outage_reach`
-- `recovery = post_reach - outage_reach`
-- `signature = min(drop, recovery)`
+- `S_reach(i,e) = reach(normal matched cycles) - reach(outage cycles)`
+- `S_rtt(i,e) = (RTT(outage cycles) - RTT(normal matched cycles)) / RTT(normal matched cycles)`
 
-An event candidate must have adequate complete cycles, stable historical and
-pre-event reachability, a drop of at least 0.5, recovery of at least 0.5, and
-historical non-response no greater than 0.2. The primary transition buffer is
-30 minutes. These values are frozen before the real run.
+For each state-level outage window, normal cycles are complete, non-outage
+cycles from the same weekday-by-two-hour slot. An IP contributes when it has
+adequate normal and outage cycles and stable normal reachability. No positive
+drop, recovery, or RTT threshold turns an IP into a binary power label. The
+primary transition buffer is 30 minutes.
 
-One eligible event can calibrate a candidate endpoint. Repeated supporting
-events are reported as stronger evidence but are not required for entry.
+For each IP, the event-specific sensitivities are averaged across independent
+state outage events. `S_reach` and `S_rtt` remain separate; RTT is evaluated
+only for responsive observations. Frozen low/middle/high strata are calculated
+within each state solely for attack-time presentation.
 
 ## Stable comparison pool
 
 B1 is estimated only from complete cycles outside registered regional scheduled
 outages and registered energy events. No scheduled-outage outcome contributes to
-B1 membership. B2 is the subset of B1 present in the frozen calibrated-sensor
+B1 membership. The continuous state-level sensitivity table is joined to B1
 registry.
 
 ## Independent application
 
-After calibration, B2 membership is frozen. Registered attack, emergency-outage,
-and recovery events cannot alter membership or thresholds. The primary
-application estimand is the event-equal difference in deficit AUC between B2 and
-B1. Maximum deficit and recovery timing are secondary outcomes.
+After calibration, the sensitivity table and state strata are frozen. Registered
+attacks, emergency outages, and recovery observations cannot alter scores,
+strata, or calibration windows. For each attack's independently registered
+affected state, the primary descriptive validation compares high and low
+`S_reach`/`S_rtt` strata on reachability deficit, cumulative deficit, recovery,
+and conditional RTT change. Cross-state summaries follow those within-state
+comparisons and never redefine the state treatment geography.
 
 ## Falsification and claim boundary
 
@@ -65,5 +70,5 @@ time-shifted windows, and same-network outside-region behavior are required
 diagnostics as data support permits. Network-wide ISP/ASN failures cannot be
 interpreted as electricity effects.
 
-The calibrated set is described as network-visible scheduled-outage-responsive
-candidate sensors. It is not IP-level physical power ground truth.
+The sensitivity table describes network-visible planned-outage association, not
+IP-level physical power ground truth.

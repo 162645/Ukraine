@@ -1,30 +1,33 @@
-# Ukraine scheduled-outage sensor calibration
+# Ukraine state-level outage sensitivity measurement
 
 This repository implements one paper question:
 
-> Can regional scheduled outages weakly supervise the calibration of network-visible, power-interruption-responsive IP endpoints, and do those frozen endpoints improve observation of independent unplanned energy shocks and recovery?
+> Can state-level scheduled-outage evidence weakly supervise continuous IP-level network sensitivity to power interruption, and does that frozen sensitivity predict state-specific reachability loss and recovery during independent energy attacks?
 
 ## Scientific design
 
-The current `v5-simple-outage-calibration` design has no national B2 pool, no
-IP-to-power-operator assignment, no inferred queue membership, and no held-out
-scheduled-outage classifier. The archived pre-refactor implementation is tagged
+The current design has no national outage labels, IP-to-power-operator
+assignment, inferred queue membership, or attack-tuned endpoint classifier.
+The archived binary-sensor implementation is tagged
 `archive-v4-regional-operator-isp-20260906`.
 
 The analysis has two main populations:
 
 - `B1`: stable endpoints built only from complete non-event measurement cycles.
-- `B2`: endpoints that, during at least one eligible regional scheduled outage,
-  are stable before the event, lose reachability during it, and recover after it.
+- Frozen state-level sensitivity: for every stable IP with usable state-level
+  planned-outage evidence, `S_reach = reach(normal) - reach(outage)` and
+  `S_rtt = (RTT(outage) - RTT(normal)) / RTT(normal)`. The two scores remain
+  separate and are averaged across independent outage events.
 
 Power operator and queue fields remain event provenance. ISP/ASN fields are used
 for network-confounding checks and are never treated as electricity providers.
 National schedule rows do not calibrate endpoints.
 
-After calibration, B2 is frozen and compared with B1 in independent attack,
-emergency-outage, and recovery events. A positive paper result requires B2 to
-show greater network-visible disruption signal than B1; a fully estimable null
-result is retained as a valid negative finding.
+After calibration, sensitivity is frozen. Independent attacks are first
+evaluated within each publicly affected state: the reachability deficit,
+cumulative deficit, recovery profile, and conditional RTT change of high- and
+low-sensitivity strata are reported. Cross-state summaries come only after
+these within-state contrasts. A null gradient remains a valid result.
 
 The frozen protocol is documented in
 `docs/ANALYSIS_PLAN_V5_SIMPLE_CALIBRATION.md`.
@@ -35,7 +38,10 @@ Only three reader-facing calibration artifacts are central:
 
 - `candidate_ips.parquet`: quality-eligible measured endpoints.
 - `calibration_events.csv`: eligible Admin1-date scheduled-outage events.
-- `calibrated_sensors.csv`: frozen stable-drop-recovery endpoint set.
+- `calibrated_sensors.csv`: frozen per-IP `S_reach`, `S_rtt`, support counts,
+  and within-state sensitivity strata.
+- `exp_b_state_sensitivity_validation.csv`: frozen high-versus-low sensitivity
+  comparisons within each attack-affected state.
 
 Large event-level candidate partitions are internal checkpoints rather than
 manual spreadsheets.

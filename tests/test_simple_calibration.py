@@ -1,6 +1,7 @@
 from types import SimpleNamespace
 
 import pandas as pd
+import pytest
 
 from uresil.simple_calibration import (aggregate_sensors, build_calibration_events,
                                        score_event_rows)
@@ -42,30 +43,39 @@ def test_national_schedule_is_not_a_calibration_label():
     assert segments.empty
 
 
-def test_single_event_stable_drop_recovery_selects_candidate():
+def test_single_event_yields_continuous_reach_and_rtt_sensitivity_without_recovery_gate():
     raw = pd.DataFrame([
-        {"dst_ip": "good", "x_normal": 4, "x_pre": 2, "x_outage": 0, "x_post": 2},
-        {"dst_ip": "no_recovery", "x_normal": 4, "x_pre": 2, "x_outage": 0, "x_post": 0},
-        {"dst_ip": "unstable", "x_normal": 1, "x_pre": 2, "x_outage": 0, "x_post": 2},
+        {"dst_ip": "good", "x_normal": 4, "x_pre": 2, "x_outage": 0, "x_post": 2,
+         "rtt_normal": 40.0, "rtt_outage": 52.0},
+        {"dst_ip": "no_recovery", "x_normal": 4, "x_pre": 2, "x_outage": 0, "x_post": 0,
+         "rtt_normal": 20.0, "rtt_outage": 20.0},
+        {"dst_ip": "unstable", "x_normal": 1, "x_pre": 2, "x_outage": 0, "x_post": 2,
+         "rtt_normal": 30.0, "rtt_outage": 45.0},
     ])
     cycles = {"normal": [1, 2, 3, 4], "pre": [5, 6], "outage": [7], "post": [8, 9]}
     got = score_event_rows(raw, cycles, _cfg()).set_index("dst_ip")
-    assert bool(got.loc["good", "is_event_candidate"])
-    assert not bool(got.loc["no_recovery", "is_event_candidate"])
-    assert not bool(got.loc["unstable", "is_event_candidate"])
+    assert bool(got.loc["good", "is_event_usable"])
+    assert bool(got.loc["no_recovery", "is_event_usable"])
+    assert not bool(got.loc["unstable", "is_event_usable"])
+    assert got.loc["good", "s_reach_event"] == 1.0
+    assert got.loc["good", "s_rtt_event"] == 0.3
 
 
-def test_aggregate_uses_one_good_event_and_counts_repeated_support():
+def test_aggregate_freezes_mean_sensitivity_and_within_state_tertiles():
     candidates = pd.DataFrame([
-        {"dst_ip": "x", "event_id": "e1", "signature": .6, "drop": .7,
-         "recovery": .6, "is_event_candidate": True},
-        {"dst_ip": "x", "event_id": "e2", "signature": .5, "drop": .5,
-         "recovery": .8, "is_event_candidate": True},
-        {"dst_ip": "y", "event_id": "e1", "signature": .7, "drop": .7,
-         "recovery": .7, "is_event_candidate": True},
+        {"dst_ip": "x", "target_admin1": "A", "event_id": "e1", "s_reach_event": .6, "s_rtt_event": .2,
+         "p_normal": .9, "p_outage": .3, "drop": .7, "recovery": .6, "rtt_estimable": True, "is_event_usable": True},
+        {"dst_ip": "x", "target_admin1": "A", "event_id": "e2", "s_reach_event": .4, "s_rtt_event": .4,
+         "p_normal": .9, "p_outage": .5, "drop": .5, "recovery": .8, "rtt_estimable": True, "is_event_usable": True},
+        {"dst_ip": "y", "target_admin1": "A", "event_id": "e1", "s_reach_event": .7, "s_rtt_event": .1,
+         "p_normal": .9, "p_outage": .2, "drop": .7, "recovery": .7, "rtt_estimable": True, "is_event_usable": True},
+        {"dst_ip": "z", "target_admin1": "A", "event_id": "e1", "s_reach_event": .1, "s_rtt_event": .8,
+         "p_normal": .9, "p_outage": .8, "drop": .1, "recovery": .1, "rtt_estimable": True, "is_event_usable": True},
     ])
     got = aggregate_sensors(candidates).set_index("dst_ip")
     assert bool(got.loc["x", "is_power_sensitive"])
     assert got.loc["x", "support_event_n"] == 2
-    assert got.loc["x", "calibration_event_id"] == "e1"
-    assert got.loc["y", "support_event_n"] == 1
+    assert got.loc["x", "s_reach"] == pytest.approx(.5)
+    assert got.loc["x", "s_rtt"] == pytest.approx(.3)
+    assert got.loc["y", "s_reach_tier"] == "high"
+    assert got.loc["z", "s_reach_tier"] == "low"

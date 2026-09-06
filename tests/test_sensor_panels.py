@@ -1,6 +1,8 @@
 import pandas as pd
 
 from uresil.config import load_config
+from uresil.exp_b_event_study import frozen_state_sensitivity_validation
+from uresil.event_design import primary_estimand
 from uresil.sensor_panels import build_event_panel, choose_primary_method
 
 
@@ -59,3 +61,22 @@ def test_split_prefix_groups_do_not_share_response_numerator():
     at=panel[(panel.cycle_id.eq(cid))&panel.method.eq('B1')]
     assert at.loc[at.target_admin1.eq('Kyiv City'),'responders'].iloc[0]==3
     assert at.loc[at.target_admin1.eq('Kyiv Oblast'),'responders'].iloc[0]==0
+
+
+def test_frozen_sensitivity_validation_compares_high_and_low_within_state():
+    cfg = load_config(run_id="sensitivity_validation", mode="demo")
+    event = cfg.load_event_registry().query("event_id == 'E2024_0826_ATTACK'").iloc[0]
+    estimand = primary_estimand(event)
+    anchor = estimand.anchor_utc
+    rows = []
+    for tier, reach in [("low", .9), ("high", .5)]:
+        for rel, stage, value in [(-8, "clean_baseline", .9), (0, "outcome", reach), (2, "outcome", reach)]:
+            rows.append({"analysis_unit_id": f"u-{tier}", "target_admin1": "Odesa Oblast",
+                         "sensitivity_stratum": tier, "method": "S_REACH", "slot": 1,
+                         "is_clean_baseline": int(stage == "clean_baseline"), "stage": stage,
+                         "normalized_reach": value, "rtt_median": 50.0,
+                         "rel_bin": rel, "measure_time": anchor + pd.Timedelta(hours=rel)})
+    got = frozen_state_sensitivity_validation(pd.DataFrame(rows), event, estimand, cfg)
+    high = got[got.sensitivity_stratum.eq("high")].iloc[0]
+    assert high.mean_reach_deficit > 0
+    assert high.high_minus_low_mean_reach_deficit > 0
