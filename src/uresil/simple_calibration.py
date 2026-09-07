@@ -478,10 +478,17 @@ def run(cfg: Config) -> dict:
                         raw = _query_event(ch, cfg, region_targets, cycles)
                         if not raw.empty:
                             scored = score_event_rows(raw, cycles, cfg)
+                            scored["event_id"] = event_id
                             for col in ("use_main", "use_augmented", "episode_id_main", "episode_id_augmented", "evidence_tier"):
                                 scored[col] = event[col]
                             selected = scored[scored.is_event_usable].copy()
                         selected.to_parquet(path, index=False)
+                    # Old cache parts are still valid expensive query results;
+                    # restore immutable event metadata before episode reduction.
+                    if not selected.empty:
+                        selected["event_id"] = event_id
+                        for col in ("use_main", "use_augmented", "episode_id_main", "episode_id_augmented", "evidence_tier"):
+                            selected[col] = event[col]
                 if not selected.empty: candidate_parts.append(selected)
                 audit_rows.append({"event_id": event_id, "geo_name": event.geo_name, "event_date": event.event_date,
                     "use_main": event.use_main, "use_augmented": event.use_augmented, "episode_id_main": event.episode_id_main,
