@@ -22,7 +22,11 @@ def select_baseline_cycles(cfg: Config, grid: pd.DataFrame, targets: pd.DataFram
             min_overlap_fraction=float(cfg.simple_calibration["min_cycle_overlap_fraction"]),
             buffer_minutes=0))
     measurement_start = pd.to_datetime(cfg.study["measurement_start_utc"], utc=True)
-    clean = grid[grid.is_complete.astype(bool) & ~grid.cycle_id.isin(excluded) &
+    # B1 is label-free and must not learn stability from any war-energy attack
+    # window either.  ``clean_baseline_mask`` now excludes attacks only; the
+    # reviewed P1/P2 planned windows are excluded explicitly above.
+    attack_clean = Events(cfg).clean_baseline_mask(grid)
+    clean = grid[grid.is_complete.astype(bool) & attack_clean & ~grid.cycle_id.isin(excluded) &
                  pd.to_datetime(grid.measure_time, utc=True).ge(measurement_start)].copy()
     clean["slot"] = slot_of(clean.measure_time, int(cycle_h))
     per_slot = int(cfg.simple_calibration.get("baseline_cycles_per_slot", 12))
@@ -67,11 +71,21 @@ def run(cfg: Config) -> dict:
                 d = raw.merge(targets[columns].drop_duplicates(["dst_ip", "prefix24"]),
                               on=["dst_ip", "prefix24"], how="inner", validate="many_to_one")
                 d["n_normal"] = len(normal)
-                # Jeffreys posterior mean is retained only as a stable expected
-                # response denominator; no scheduled-outage label enters here.
-                d["pN"] = (pd.to_numeric(d.x_normal, errors="coerce").fillna(0) + 0.5) / (len(normal) + 1.0)
-                d["in_B1"] = (d.pN.ge(float(cfg.baseline["stable_ip_resp_rate"])) &
-                               d.n_normal.ge(int(cfg.baseline["min_exposure_cycles"])))
+                d["x_normal"] = pd.to_numeric(d.x_normal, errors="coerce").fillna(0)
+                # Activity is a continuous endpoint feature, not a hard gate.
+                # Keep the raw estimand required by the research plan and retain
+                # the Jeffreys-smoothed value only as an engineering helper.
+                d["activity_score_raw"] = d["x_normal"] / float(max(len(normal), 1))
+                d["activity_score_smoothed"] = (d["x_normal"] + 0.5) / (len(normal) + 1.0)
+                min_activity_cycles = int(cfg.raw.get("ip_activity", {}).get(
+                    "min_normal_cycles", cfg.baseline.get("min_exposure_cycles", 24)))
+                d["activity_estimable"] = d["n_normal"].ge(min_activity_cycles)
+                d["pN"] = d["activity_score_smoothed"]
+                # Legacy B1 is retained for compatibility/audit only.  It must
+                # never define the canonical IP population or sensitivity pool.
+                d["in_B1"] = d["activity_estimable"]
+                d["legacy_stable_B1"] = (d["activity_score_smoothed"].ge(
+                    float(cfg.baseline.get("stable_ip_resp_rate", 0.8))) & d["activity_estimable"])
                 d["in_B2"] = False
                 d.to_parquet(path, index=False)
                 outputs.append(str(path))

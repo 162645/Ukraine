@@ -134,6 +134,23 @@ baseline:
   - 1.5
   abnormal_quantile: 0.05
   abnormal_mad_k: 3.0
+ip_activity:
+  min_normal_cycles: 24
+  quantiles: 10
+  use_smoothed_for_primary: false
+ip_sensitivity:
+  min_independent_events: 3
+  quantiles: 5
+  support_sensitivity:
+  - 2
+  - 3
+  - 4
+macro_signals:
+  ips_baseline_days: 7
+  ips_outage_ratio: 0.90
+  fbs_baseline_days: 7
+  fbs_outage_ratio: 0.95
+  fbs_monthly_min_ever_responsive_ips: 3
 aggregation:
   primary: prefix24_equal
   report:
@@ -260,6 +277,7 @@ simple_calibration:
   min_cycle_overlap_fraction: 0.5
   normal_cycles_per_outage_cycle: 4
   baseline_cycles_per_slot: 12
+  min_independent_events: 3
   min_normal_cycles: 4
   min_pre_cycles: 2
   min_outage_cycles: 1
@@ -418,6 +436,7 @@ paths:
   demo_run_root: demo_runs
   data_derived: data_derived
   results_tables: results/tables
+  results_figure_data: results/figure_data
   results_figures: results/figures
   model_objects: results/model_objects
   logs: logs

@@ -27,7 +27,7 @@ from uresil.time_contract import measurement_time_contract
 # the sole later database stage: its query prefix set is defined by the local
 # features + expB matching outputs, so moving it earlier would change the
 # scientific sample rather than merely changing execution order.
-STAGE_ORDER = ["preflight", "audit", "panels", "baseline", "calibrate", "sensorPanels",
+STAGE_ORDER = ["preflight", "audit", "panels", "canonicalSignals", "baseline", "calibrate", "sensorPanels",
                "features", "expB", "expF", "expD", "figures", "validate"]
 
 
@@ -47,6 +47,9 @@ def execute(stage: str, cfg):
         return m.run(cfg)
     if stage == "panels":
         from uresil import panels as m
+        return m.run(cfg)
+    if stage == "canonicalSignals":
+        from uresil import canonical_stage as m
         return m.run(cfg)
     if stage == "baseline":
         from uresil import baseline_pool as m

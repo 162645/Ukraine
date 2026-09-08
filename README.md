@@ -108,3 +108,16 @@ runs/<run_id>/results/tables/closure_report.json
 Selected endpoints are scheduled-outage-calibrated candidate sensors, not
 verified electricity-meter observations. The physical electricity claim remains
 limited by the absence of IP-to-feeder or IP-to-customer ground truth.
+# Research-plan alignment (v5)
+
+The canonical endpoint population is the regional target universe with at least
+the configured number of clean normal cycles (24 by default).  Activity is
+stored as the continuous raw response rate; the historical B1 response-rate
+threshold is diagnostic only and does not define canonical IPS/FBS or the
+planned-outage sensitivity population.  Planned-outage reachability sensitivity
+is `p_ctrl - p_out` per independent episode and is averaged equally across
+episodes.  RTT sensitivity remains a separate conditional measure.  Attack
+validation uses frozen labels and must not feed back into calibration.
+
+The project has only a current IP mapping snapshot.  It therefore does not
+claim to reproduce longitudinal monthly GeoIP stability classification.

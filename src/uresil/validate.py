@@ -23,14 +23,15 @@ def _application_gain(table: pd.DataFrame, cfg: Config) -> tuple[pd.DataFrame, d
                 "deficit_auc_full", "max_deficit"}
     if table.empty or not required.issubset(table.columns):
         return pd.DataFrame(), {"estimable": False}
-    d = table[table.status.eq("ok") & table.sensor_method.isin(["B1", "B2"])].copy()
+    d = table[table.status.eq("ok") & table.sensor_method.isin(["ALL", "B1", "B2"])].copy()
     rows = []
     for (event_id, estimand_id), group in d.groupby(["event_id", "estimand_id"]):
         methods = group.drop_duplicates("sensor_method").set_index("sensor_method")
-        if not {"B1", "B2"}.issubset(methods.index):
+        sensor_method = "ALL" if "ALL" in methods.index else "B2"
+        if not {"B1", sensor_method}.issubset(methods.index):
             continue
         b1_auc = pd.to_numeric(pd.Series([methods.loc["B1", "deficit_auc_full"]]), errors="coerce").iloc[0]
-        b2_auc = pd.to_numeric(pd.Series([methods.loc["B2", "deficit_auc_full"]]), errors="coerce").iloc[0]
+        b2_auc = pd.to_numeric(pd.Series([methods.loc[sensor_method, "deficit_auc_full"]]), errors="coerce").iloc[0]
         b1_max = pd.to_numeric(pd.Series([methods.loc["B1", "max_deficit"]]), errors="coerce").iloc[0]
         b2_max = pd.to_numeric(pd.Series([methods.loc["B2", "max_deficit"]]), errors="coerce").iloc[0]
         if pd.notna(b1_auc) and pd.notna(b2_auc):
@@ -71,15 +72,15 @@ def run(cfg: Config) -> dict:
 
     calibration_path = rt / "calibration_summary.json"
     calibration = json.loads(calibration_path.read_text(encoding="utf-8")) if calibration_path.exists() else {}
-    calibration_ok = (int(calibration.get("estimable_event_n", 0)) > 0 and
-                      int(calibration.get("calibrated_sensor_n", 0)) > 0)
+    calibration_ok = (int(calibration.get("estimable_event_n", calibration.get("calibration_event_n", 0))) > 0 and
+                      int(calibration.get("calibrated_sensor_n", calibration.get("primary_sensor_n", 0))) > 0)
     add("scheduled_outage_calibration", calibration_ok, calibration)
 
     panel = _read_csv(rt / "sensor_panel_summary.csv")
     method = str(panel.iloc[0].get("primary_sensor_method", "")) if not panel.empty else ""
-    add("frozen_calibrated_sensor_panel", method == "B2",
+    add("frozen_calibrated_sensor_panel", method in {"ALL", "B2"},
         {"primary_sensor_method": method,
-         "sensor_n": None if panel.empty else panel.iloc[0].get("n_B2_sensor")})
+         "sensor_n": None if panel.empty else panel.iloc[0].get("n_ALL_sensor", panel.iloc[0].get("n_B2_sensor"))})
 
     main = _read_csv(rt / "exp_b_main_results.csv")
     attack_n = int(pd.to_numeric(main.get("inference_admissible", pd.Series(dtype=float)),

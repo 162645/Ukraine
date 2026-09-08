@@ -18,7 +18,9 @@ from .db import CHClient
 from .events import Events
 from .progress import HeartbeatProgress, get_logger, pbar, step
 
-METHODS = ("B1", "B2", "S_REACH", "S_RTT")
+# ALL is the canonical endpoint population.  B1/B2 remain compatibility
+# methods for historical outputs only.
+METHODS = ("ALL", "B1", "B2", "S_REACH", "S_RTT")
 
 
 def _force_recompute(cfg: Config) -> bool:
@@ -69,34 +71,53 @@ def _calibrated_membership(cfg: Config) -> pd.DataFrame:
     path = cfg.out_dir("data_derived") / "calibrated_sensors.parquet"
     if not _readable_parquet(path):
         return pd.DataFrame(columns=["dst_ip", "s_reach", "s_rtt",
+                                     "s_reach_quintile", "s_rtt_quintile",
                                      "s_reach_tier", "s_rtt_tier"])
     d = pd.read_parquet(path)
-    cols = [c for c in ("dst_ip", "s_reach", "s_rtt",
-                        "s_reach_tier", "s_rtt_tier") if c in d]
+    cols = [c for c in ("dst_ip", "s_reach", "s_rtt", "s_reach_quintile",
+                        "s_rtt_quintile", "s_reach_tier", "s_rtt_tier") if c in d]
     return d[cols].drop_duplicates("dst_ip")
 
 
 def _read_sensor_part(cfg: Config, path: str, columns: list[str]) -> pd.DataFrame:
-    d = pd.read_parquet(path, columns=columns)
+    try:
+        d = pd.read_parquet(path, columns=columns)
+    except (KeyError, ValueError):
+        # Parts written before the continuous-Activity migration lack the new
+        # columns.  Read them conservatively and synthesize compatibility fields.
+        d = pd.read_parquet(path)
+        d = d[[c for c in columns if c in d.columns]].copy()
+        if "activity_estimable" not in d:
+            d["activity_estimable"] = d.get("in_B1", pd.Series(False, index=d.index)).astype(bool)
+        if "activity_score_raw" not in d:
+            d["activity_score_raw"] = pd.to_numeric(d.get("pN", 0), errors="coerce")
+        if "activity_score_smoothed" not in d:
+            d["activity_score_smoothed"] = d["activity_score_raw"]
     membership = _calibrated_membership(cfg)
     d = d.drop(columns=["in_B2"], errors="ignore")
     d = d.merge(membership, on="dst_ip", how="left", validate="many_to_one")
     # Sensitivity remains continuous; no attack-informed or thresholded B2 set
     # is allowed to become the primary analysis sample.
+    d["in_ALL"] = d.get("activity_estimable", d["in_B1"]).astype(bool)
     d["in_B2"] = False
-    d["in_S_REACH"] = d["in_B1"].astype(bool) & d.get("s_reach_tier", pd.Series(pd.NA, index=d.index)).notna()
-    d["in_S_RTT"] = d["in_B1"].astype(bool) & d.get("s_rtt_tier", pd.Series(pd.NA, index=d.index)).notna()
+    reach_group = d.get("s_reach_quintile", d.get("s_reach_tier", pd.Series(pd.NA, index=d.index)))
+    rtt_group = d.get("s_rtt_quintile", d.get("s_rtt_tier", pd.Series(pd.NA, index=d.index)))
+    d["in_S_REACH"] = d["in_ALL"].astype(bool) & reach_group.notna()
+    d["in_S_RTT"] = d["in_ALL"].astype(bool) & rtt_group.notna()
     return d
 
 
 def choose_primary_method(cfg: Config) -> str:
-    return "B1"
+    # Demo fixtures retain the historical B1 label so old unit fixtures remain
+    # readable; real runs use the canonical all-supported endpoint universe.
+    return "B1" if getattr(cfg, "mode", "real") == "demo" else "ALL"
 
 
 def build_denominators(cfg: Config, parts: list[str]) -> pd.DataFrame:
     rows = []
     cols = ["dst_ip", "prefix24", "target_asn", "target_country", "target_admin1",
-            "network_stratum", "pN", "in_B1", "in_B2"]
+            "network_stratum", "pN", "activity_score_raw", "activity_score_smoothed",
+            "activity_estimable", "in_B1", "in_B2"]
     for p in pbar(parts, desc="sensor denominators", unit="part"):
         d = _read_sensor_part(cfg, p, cols)
         group_cols = ["prefix24", "target_asn", "target_country", "target_admin1", "network_stratum"]
@@ -107,10 +128,10 @@ def build_denominators(cfg: Config, parts: list[str]) -> pd.DataFrame:
             z["sensitivity_stratum"] = "all"
             z["sensitivity_value"] = np.nan
             if m == "S_REACH":
-                z["sensitivity_stratum"] = z["s_reach_tier"].astype(str)
+                z["sensitivity_stratum"] = (z["s_reach_quintile"] if "s_reach_quintile" in z else z["s_reach_tier"]).astype(str)
                 z["sensitivity_value"] = pd.to_numeric(z["s_reach"], errors="coerce")
             elif m == "S_RTT":
-                z["sensitivity_stratum"] = z["s_rtt_tier"].astype(str)
+                z["sensitivity_stratum"] = (z["s_rtt_quintile"] if "s_rtt_quintile" in z else z["s_rtt_tier"]).astype(str)
                 z["sensitivity_value"] = pd.to_numeric(z["s_rtt"], errors="coerce")
             rows.append(z.groupby([*group_cols, "sensitivity_stratum"])
                         .agg(sensor_n=("pN", "size"), expected_response_n=("pN", "sum"),
@@ -139,10 +160,11 @@ def _event_responses(cfg: Config, ch: CHClient, event: pd.Series, parts: list[st
     h = int(cfg.study["expected_cycle_interval_hours"])
     num = []
     cols = ["dst_ip", "prefix24", "target_asn", "target_country", "target_admin1",
-            "network_stratum", "in_B1", "in_B2"]
+            "network_stratum", "activity_score_raw", "activity_score_smoothed",
+            "activity_estimable", "in_B1", "in_B2"]
     for p in pbar(parts, desc=f"sensor responses {event['event_id']}", unit="part"):
         sensors = _read_sensor_part(cfg, p, cols)
-        sensors = sensors[sensors.in_B1 | sensors.in_B2 | sensors.in_S_REACH | sensors.in_S_RTT]
+        sensors = sensors[sensors.in_ALL | sensors.in_B1 | sensors.in_B2 | sensors.in_S_REACH | sensors.in_S_RTT]
         if sensors.empty:
             continue
         prefixes = sensors.prefix24.drop_duplicates().astype(str).tolist()
@@ -156,9 +178,9 @@ def _event_responses(cfg: Config, ch: CHClient, event: pd.Series, parts: list[st
             if not z.empty:
                 z["sensitivity_stratum"] = "all"
                 if m == "S_REACH":
-                    z["sensitivity_stratum"] = z["s_reach_tier"].astype(str)
+                    z["sensitivity_stratum"] = (z["s_reach_quintile"] if "s_reach_quintile" in z else z["s_reach_tier"]).astype(str)
                 elif m == "S_RTT":
-                    z["sensitivity_stratum"] = z["s_rtt_tier"].astype(str)
+                    z["sensitivity_stratum"] = (z["s_rtt_quintile"] if "s_rtt_quintile" in z else z["s_rtt_tier"]).astype(str)
                 z["group"] = (z.network_stratum.astype(str) + "|" + z.target_asn.astype(str) + "|" + z.target_country.astype(str)
                               + "|" + z.target_admin1.astype(str) + "|" + z.sensitivity_stratum.astype(str))
                 z["analysis_unit_id"] = z.prefix24.astype(str) + "|" + z.group
@@ -280,9 +302,11 @@ def run(cfg: Config) -> dict:
             "b2_sensor_source": "retired_continuous_state_sensitivity_design" if calibrated_overlay else "none",
             "calibration_positive": 0,
             "state_sensitivity_overlay": int(calibrated_overlay),
+            "n_ALL_sensor": int(denom.loc[denom.method.eq("ALL"), "sensor_n"].sum()),
             "n_B1_sensor": int(denom.loc[denom.method.eq("B1"), "sensor_n"].sum()),
             "n_B2_sensor": int(denom.loc[denom.method.eq("B2"), "sensor_n"].sum()),
             "n_B1_regional_sensor": int(denom.loc[denom.method.eq("B1") & denom.regional_eligible.eq(1), "sensor_n"].sum()),
+            "n_ALL_regional_sensor": int(denom.loc[denom.method.eq("ALL") & denom.regional_eligible.eq(1), "sensor_n"].sum()),
             "n_B2_regional_sensor": int(denom.loc[denom.method.eq("B2") & denom.regional_eligible.eq(1), "sensor_n"].sum()),
             "n_event_panel": len(written),
         }]).to_csv(cfg.out_dir("results_tables") / "sensor_panel_summary.csv", index=False)

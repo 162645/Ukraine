@@ -194,7 +194,9 @@ def build_group_event_features(cfg: Config) -> tuple[pd.DataFrame, pd.DataFrame]
             if not path.exists():
                 logger.warning("Missing sensor event panel: %s", path.name); continue
             panel = pd.read_parquet(path)
-            for method in ("B1", "B2"):
+            # ALL is the canonical endpoint population; B1/B2 are retained as
+            # historical compatibility panels only.
+            for method in ("ALL", "B1", "B2"):
                 all_rows.extend(_event_method_features(panel, event, cfg, method))
     all_methods = pd.DataFrame(all_rows)
     primary_df = all_methods[all_methods["sensor_method"].eq(primary)].copy() if not all_methods.empty else pd.DataFrame()
@@ -203,6 +205,7 @@ def build_group_event_features(cfg: Config) -> tuple[pd.DataFrame, pd.DataFrame]
     all_methods.to_parquet(p_all, index=False); primary_df.to_parquet(p_primary, index=False)
     pd.DataFrame([{
         "primary_sensor_method": primary, "n_group_event_primary": len(primary_df),
+        "n_group_event_ALL": int((all_methods.get("sensor_method") == "ALL").sum()) if not all_methods.empty else 0,
         "n_group_event_B1": int((all_methods.get("sensor_method") == "B1").sum()) if not all_methods.empty else 0,
         "n_group_event_B2": int((all_methods.get("sensor_method") == "B2").sum()) if not all_methods.empty else 0,
     }]).to_csv(cfg.out_dir("results_tables") / "group_feature_summary.csv", index=False)

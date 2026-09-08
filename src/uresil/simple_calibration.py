@@ -317,10 +317,13 @@ def score_event_rows(raw: pd.DataFrame, cycle_sets: dict[str, list[int]], cfg: C
     if d["n_clear"].eq(0).all():
         d["s_rtt_explicit_clear"] = np.nan
     d["rtt_estimable"] = normal_rtt.gt(0) & outage_rtt.notna()
+    # Normal activity is a covariate, not an admission gate.  Keep the old
+    # response-rate rule as a diagnostic flag only; low-Activity endpoints are
+    # part of the estimand and must remain eligible when cycle support exists.
+    d["legacy_stable_normal"] = d.p_normal.ge(float(scfg.get("stable_reach_rate", 0.8)))
     d["is_event_usable"] = (
         d.n_normal.ge(int(scfg["min_normal_cycles"])) &
-        d.n_outage.ge(int(scfg["min_outage_cycles"])) &
-        d.p_normal.ge(float(scfg["stable_reach_rate"]))
+        d.n_outage.ge(int(scfg["min_outage_cycles"]))
     )
     # Compatibility alias for downstream readers of early run artifacts.  It
     # now means usable state-level evidence, never a positive/negative label.
@@ -365,17 +368,24 @@ def _query_event(ch: CHClient, cfg: Config, targets: pd.DataFrame,
                      on=["dst_ip", "prefix24"], how="inner", validate="many_to_one")
 
 
-def _within_state_tertile(frame: pd.DataFrame, column: str, output: str) -> pd.Series:
-    """Frozen low/middle/high strata, calculated independently within a state."""
+def _within_state_quantile(frame: pd.DataFrame, column: str, q: int, output: str) -> pd.Series:
+    """Assign descriptive within-state quantiles without filtering endpoints."""
     out = pd.Series(pd.NA, index=frame.index, dtype="string")
     for _, index in frame.groupby("target_admin1").groups.items():
         values = pd.to_numeric(frame.loc[index, column], errors="coerce")
-        if values.notna().sum() < 3 or values.nunique(dropna=True) < 3:
+        if values.notna().sum() < q or values.nunique(dropna=True) < q:
             continue
         ranks = values.rank(method="average", pct=True)
-        out.loc[index] = pd.cut(ranks, [0, 1 / 3, 2 / 3, 1],
-                                labels=["low", "middle", "high"], include_lowest=True).astype("string")
+        labels = [f"Q{i}" for i in range(1, q + 1)]
+        out.loc[index] = pd.cut(ranks, [i / q for i in range(q + 1)],
+                                labels=labels, include_lowest=True).astype("string")
     return out
+
+
+def _within_state_tertile(frame: pd.DataFrame, column: str, output: str) -> pd.Series:
+    """Backward-compatible legacy tertile labels."""
+    out = _within_state_quantile(frame, column, 3, output)
+    return out.map({"Q1": "low", "Q2": "middle", "Q3": "high"}).astype("string")
 
 
 def aggregate_sensors(candidates: pd.DataFrame) -> pd.DataFrame:
@@ -425,11 +435,14 @@ def aggregate_sensors(candidates: pd.DataFrame) -> pd.DataFrame:
     summary = primary.merge(augmented, on=identity, how="outer")
     if summary.empty:
         return summary
+    summary["s_reach_quintile"] = _within_state_quantile(summary, "s_reach_primary", 5, "s_reach_quintile")
+    summary["s_rtt_quintile"] = _within_state_quantile(summary, "s_rtt_primary", 5, "s_rtt_quintile")
+    # Legacy aliases are preserved for old readers, but Q1--Q5 are canonical.
     summary["s_reach_tier"] = _within_state_tertile(summary, "s_reach_primary", "s_reach_tier")
     summary["s_rtt_tier"] = _within_state_tertile(summary, "s_rtt_primary", "s_rtt_tier")
     summary["support_episode_n"] = summary["support_episode_n_primary"]
     summary["support_event_n"] = summary["support_episode_n_primary"]
-    summary["calibration_design"] = "B1_state_same_weekday_slot_clean_cycle"
+    summary["calibration_design"] = "all_activity_supported_state_same_weekday_slot_clean_cycle"
     # This flag is intentionally not used for method selection.  It preserves
     # a readable indicator that a score is supported by at least one event.
     summary["has_primary_score"] = summary["s_reach_primary"].notna()
@@ -446,10 +459,13 @@ def run(cfg: Config) -> dict:
     logger = get_logger(cfg.out_dir("logs")); dd, rt = cfg.out_dir("data_derived"), cfg.out_dir("results_tables")
     universe = pd.read_parquet(dd / "target_ip_universe.parquet")
     parts = b1_score_parts(dd)
-    if not parts: raise RuntimeError("B1 stable pool is required before calibration")
-    b1 = pd.concat([pd.read_parquet(p, columns=["dst_ip", "prefix24", "in_B1"]) for p in parts], ignore_index=True)
-    b1 = b1[b1.in_B1.astype(bool)].drop_duplicates(["dst_ip", "prefix24"])
-    targets = universe.merge(b1[["dst_ip", "prefix24"]], on=["dst_ip", "prefix24"], how="inner")
+    if not parts: raise RuntimeError("endpoint score parts are required before calibration")
+    # Canonical sensitivity population: every regional target with sufficient
+    # clean-cycle support.  Do not apply the legacy response-rate B1 gate.
+    support = pd.concat([pd.read_parquet(p, columns=["dst_ip", "prefix24", "activity_estimable"])
+                         for p in parts], ignore_index=True)
+    support = support[support.activity_estimable.astype(bool)].drop_duplicates(["dst_ip", "prefix24"])
+    targets = universe.merge(support[["dst_ip", "prefix24"]], on=["dst_ip", "prefix24"], how="inner")
     targets = targets[targets.regional_eligible.astype(bool)].copy()
     candidate_path = dd / "candidate_ips.parquet"; targets.to_parquet(candidate_path, index=False)
     grid = Events(cfg).build_cycle_grid(pd.read_parquet(dd / "cycle_quality.parquet"))
@@ -468,7 +484,7 @@ def run(cfg: Config) -> dict:
                 cycles = event_cycle_sets(event, event_segments, grid, cfg, all_outage_ids)
                 region_targets = targets[targets.target_admin1.eq(event.geo_name)]
                 reasons = []
-                if region_targets.empty: reasons.append("no_B1_for_state")
+                if region_targets.empty: reasons.append("no_activity_supported_ip_for_state")
                 if len(cycles["outage"]) < int(cfg.simple_calibration["min_outage_cycles"]): reasons.append("insufficient_outage_cycles")
                 if len(cycles["normal"]) < int(cfg.simple_calibration["min_normal_cycles"]): reasons.append("insufficient_normal_controls")
                 estimable = not reasons; selected = pd.DataFrame(); path = cache / f"{event_id}.parquet"
@@ -505,14 +521,33 @@ def run(cfg: Config) -> dict:
     episode_audit.to_csv(rt / "calibration_episode_audit.csv", index=False, encoding="utf-8-sig")
     labels = targets[[c for c in ("dst_ip", "prefix24", "target_admin1", "target_city", "target_asn", "network_stratum") if c in targets]].drop_duplicates(["dst_ip", "prefix24"]).copy(); labels["in_B1"] = 1
     labels = labels.merge(sensors, on=["dst_ip", "prefix24", "target_admin1"], how="left", suffixes=("", "_score"))
-    labels["primary_estimable"] = labels.s_reach_primary.notna(); labels["augmented_estimable"] = labels.s_reach_augmented.notna()
+    min_events = int(cfg.raw.get("ip_sensitivity", {}).get("min_independent_events",
+                        cfg.simple_calibration.get("min_independent_events", 3)))
+    support_n = pd.to_numeric(labels.get("support_episode_n_primary", pd.Series(np.nan, index=labels.index)), errors="coerce")
+    labels["support_ge_2"] = support_n.ge(2).fillna(False)
+    labels["support_ge_3"] = support_n.ge(3).fillna(False)
+    labels["support_ge_4"] = support_n.ge(4).fillna(False)
+    labels["primary_estimable"] = labels.s_reach_primary.notna() & support_n.ge(min_events).fillna(False)
+    aug_support_n = pd.to_numeric(labels.get("support_episode_n_augmented", pd.Series(np.nan, index=labels.index)), errors="coerce")
+    labels["augmented_estimable"] = labels.s_reach_augmented.notna() & aug_support_n.ge(min_events).fillna(False)
     p1_states = set(events.loc[events.use_main.eq(1), "geo_name"]); p2_states = set(events.loc[events.use_augmented.eq(1), "geo_name"])
     labels["not_estimable_reason"] = np.where(labels.primary_estimable, "", np.where(~labels.target_admin1.isin(p1_states), "no_calibration_event_for_state", "insufficient_measurement_support"))
     labels["augmented_not_estimable_reason"] = np.where(labels.augmented_estimable, "", np.where(~labels.target_admin1.isin(p2_states), "no_calibration_event_for_state", "insufficient_measurement_support"))
     labels.to_parquet(rt / "b1_full_sensitivity_labels.parquet", index=False); labels.to_csv(rt / "b1_full_sensitivity_labels.csv", index=False, encoding="utf-8-sig")
     primary = labels[labels.primary_estimable].copy(); augmented = labels[labels.augmented_estimable].copy(); primary.to_csv(rt / "calibrated_sensitivity_primary.csv", index=False, encoding="utf-8-sig"); augmented.to_csv(rt / "calibrated_sensitivity_augmented.csv", index=False, encoding="utf-8-sig")
-    state_summary = labels.groupby("target_admin1", dropna=False).agg(b1_ip_n=("dst_ip", "nunique"), primary_ip_n=("primary_estimable", "sum"), augmented_ip_n=("augmented_estimable", "sum"), s_reach_primary_mean=("s_reach_primary", "mean"), s_reach_augmented_mean=("s_reach_augmented", "mean")).reset_index(); state_summary.to_csv(rt / "state_sensitivity_summary.csv", index=False, encoding="utf-8-sig")
-    funnel = pd.DataFrame([{"stage":"raw_ip", "n": universe.dst_ip.nunique()}, {"stage":"regional_ip", "n": universe[universe.regional_eligible.astype(bool)].dst_ip.nunique()}, {"stage":"B1_ip", "n": labels.dst_ip.nunique()}, {"stage":"B1_with_P1_state", "n": labels[labels.target_admin1.isin(p1_states)].dst_ip.nunique()}, {"stage":"P1_estimable", "n": int(labels.primary_estimable.sum())}, {"stage":"B1_with_P1P2_state", "n": labels[labels.target_admin1.isin(p2_states)].dst_ip.nunique()}, {"stage":"P1P2_estimable", "n": int(labels.augmented_estimable.sum())}]); funnel.to_csv(rt / "calibration_funnel.csv", index=False, encoding="utf-8-sig")
+    state_summary = labels.groupby("target_admin1", dropna=False).agg(
+        activity_supported_ip_n=("dst_ip", "nunique"),
+        primary_ip_n=("primary_estimable", "sum"),
+        augmented_ip_n=("augmented_estimable", "sum"),
+        support_ge_2_ip_n=("support_ge_2", "sum"),
+        support_ge_3_ip_n=("support_ge_3", "sum"),
+        support_ge_4_ip_n=("support_ge_4", "sum"),
+        s_reach_primary_mean=("s_reach_primary", "mean"),
+        s_reach_augmented_mean=("s_reach_augmented", "mean"),
+    ).reset_index()
+    state_summary["b1_ip_n_legacy"] = state_summary["activity_supported_ip_n"]
+    state_summary.to_csv(rt / "state_sensitivity_summary.csv", index=False, encoding="utf-8-sig")
+    funnel = pd.DataFrame([{"stage":"raw_ip", "n": universe.dst_ip.nunique()}, {"stage":"regional_ip", "n": universe[universe.regional_eligible.astype(bool)].dst_ip.nunique()}, {"stage":"activity_supported_ip", "n": labels.dst_ip.nunique()}, {"stage":"activity_supported_with_P1_state", "n": labels[labels.target_admin1.isin(p1_states)].dst_ip.nunique()}, {"stage":"P1_estimable", "n": int(labels.primary_estimable.sum())}, {"stage":"activity_supported_with_P1P2_state", "n": labels[labels.target_admin1.isin(p2_states)].dst_ip.nunique()}, {"stage":"P1P2_estimable", "n": int(labels.augmented_estimable.sum())}]); funnel.to_csv(rt / "calibration_funnel.csv", index=False, encoding="utf-8-sig")
     labels.loc[~labels.primary_estimable].groupby("not_estimable_reason").size().reset_index(name="ip_n").to_csv(rt / "calibration_not_estimable_reasons.csv", index=False, encoding="utf-8-sig")
     both = labels[labels.primary_estimable & labels.augmented_estimable].copy()
     robust_rows = []
