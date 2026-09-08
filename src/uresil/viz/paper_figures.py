@@ -82,4 +82,39 @@ def render(cfg, lang="en"):
         g = d.groupby("group", dropna=False)[["population_share", "loss_contribution"]].mean(); fig, ax = plt.subplots(figsize=(cfg.figures["double_column_width_in"], 3.0)); g.plot.bar(ax=ax, color=[PALETTE[0], PALETTE[1]]); ax.axhline(1, color="0.3", ls=":"); ax.set_xlabel("Group"); ax.set_ylabel("Share"); ax.legend(frameon=False)
         outputs += _save(fig, cfg, "fig14_h4_loss_decomposition", src, "Population share and IPS-loss contribution by frozen endpoint group.")
     else: warnings.append("fig14 source data unavailable")
+    # Remaining registered figures use deterministic type-specific renderers.
+    # They never manufacture values: an empty source is reported as a warning.
+    generic_specs = {
+        "fig00a_cycle_quality": ("measure_time", "complete", "UTC cycle", "Complete cycle"),
+        "fig00b_cycle_availability": ("measure_time", "available_ip_n", "UTC cycle", "Available IPs"),
+        "fig01_oblast_coverage": ("target_admin1", "total_mapped_ip", "Oblast", "IP count"),
+        "fig03_power_internet_calendar": ("date", "ips_outage_hours", "Date", "IPS outage hours"),
+        "fig04_monthly_outage_hours": ("month", "ips_outage_hours", "Month", "Outage hours"),
+        "fig08_attack_overall_signal": ("measure_time", "IPS_ratio", "UTC time", "IPS ratio"),
+        "fig09_q1_q5_event_curves": ("rel_h", "effect", "Hours relative to attack", "IPS ratio/effect"),
+        "fig13_h3_continuous_association": ("sensitivity_value", "peak_drop", "S_i", "Peak drop"),
+        "fig15_network_structure": ("target_asn", "attack_peak_drop", "ASN", "Attack peak drop"),
+        "fig16_as_event_timeline": ("rel_h", "reach_dev", "Hours relative to attack", "Reachability deviation"),
+        "fig17_rtt_heatmap": ("measure_time", "rtt_change", "UTC time", "RTT change"),
+        "fig18_threshold_sensitivity": ("threshold", "outage_hours", "Threshold", "Outage hours"),
+        "fig19_power_internet_correlation": ("power_exposure", "internet_impact", "Power exposure", "Internet impact"),
+    }
+    for stem, (xc, yc, xl, yl) in generic_specs.items():
+        if stem in {"fig00a_cycle_quality", "fig00b_cycle_availability", "fig01_oblast_coverage", "fig03_power_internet_calendar", "fig04_monthly_outage_hours", "fig08_attack_overall_signal", "fig09_q1_q5_event_curves", "fig13_h3_continuous_association", "fig15_network_structure", "fig16_as_event_timeline", "fig17_rtt_heatmap", "fig18_threshold_sensitivity", "fig19_power_internet_correlation"}:
+            d, src = _source(cfg, stem)
+            if d.empty or xc not in d.columns or yc not in d.columns:
+                warnings.append(f"{stem} source data unavailable")
+                continue
+            z = d[[xc, yc]].copy(); z[yc] = pd.to_numeric(z[yc], errors="coerce"); z = z.dropna(subset=[yc])
+            if z.empty:
+                warnings.append(f"{stem} has no finite plot rows")
+                continue
+            apply_style(cfg, lang); fig, ax = plt.subplots(figsize=(cfg.figures["double_column_width_in"], 3.0))
+            if stem in {"fig00a_cycle_quality", "fig01_oblast_coverage", "fig15_network_structure"}:
+                z = z.groupby(xc, as_index=False)[yc].mean().sort_values(yc); ax.barh(z[xc].astype(str), z[yc], color=PALETTE[0])
+            else:
+                ax.plot(np.arange(len(z)), z[yc].to_numpy(float), color=PALETTE[0], marker="o", markevery=max(1, len(z)//12))
+                ax.set_xticks(np.arange(len(z))[::max(1, len(z)//8)], z[xc].astype(str).to_numpy()[::max(1, len(z)//8)], rotation=30, ha="right")
+            ax.set_xlabel(xl); ax.set_ylabel(yl); ax.axhline(0, color="0.3", ls=":")
+            outputs += _save(fig, cfg, stem, src, f"{yl} by {xl}; values are shown only when the registered source data are available.")
     return {"outputs": outputs, "warnings": warnings, "status": "ok" if not warnings else "warning"}

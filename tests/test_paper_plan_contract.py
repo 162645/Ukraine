@@ -2,6 +2,7 @@ import pandas as pd
 
 from uresil.canonical_signals import add_rolling_ratios
 from uresil.paper_analysis import _h1_h2_h3_h4
+from uresil.paper_analysis import FIGURE_SPECS
 
 
 def test_rolling_ratio_is_strictly_prior_and_uses_operational_thresholds():
@@ -27,3 +28,8 @@ def test_h4_contribution_definition_sums_to_one_for_positive_loss():
     ])
     h4 = _h1_h2_h3_h4(d)["h4_ips_loss_decomposition"]
     assert h4.loss_contribution.sum() == 1
+
+
+def test_all_registered_paper_figures_have_contracts():
+    expected = {"fig00a_", "fig00b_"} | {f"fig{i:02d}_" for i in range(1, 20)}
+    assert all(any(name.startswith(prefix) for name in FIGURE_SPECS) for prefix in expected)
