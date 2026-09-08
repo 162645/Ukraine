@@ -32,7 +32,7 @@ def eligible_blocks(responses: pd.DataFrame, min_monthly_ips: int = 3) -> pd.Dat
         raise ValueError(f"missing columns for FBS eligibility: {sorted(missing)}")
     d = responses.copy()
     d["measure_time"] = pd.to_datetime(d["measure_time"], utc=True)
-    d["month"] = d.measure_time.dt.to_period("M").astype(str)
+    d["month"] = d.measure_time.dt.tz_localize(None).dt.to_period("M").astype(str)
     d = d.dropna(subset=["month", "prefix24", "dst_ip"])
     out = (d.groupby(["month", "prefix24"], as_index=False)
              .agg(ever_responsive_ips=("dst_ip", "nunique")))
@@ -58,7 +58,7 @@ def compute_canonical_fbs(responses: pd.DataFrame, block_admin1: pd.DataFrame,
     d = d.merge(block_admin1[["prefix24", "admin1"]].drop_duplicates("prefix24"),
                 on="prefix24", how="inner", validate="many_to_one")
     elig = eligible_blocks(responses, min_monthly_ips)
-    d["month"] = d.measure_time.dt.to_period("M").astype(str)
+    d["month"] = d.measure_time.dt.tz_localize(None).dt.to_period("M").astype(str)
     d = d.merge(elig.loc[elig.eligible, ["month", "prefix24"]],
                 on=["month", "prefix24"], how="inner")
     d = d.drop_duplicates(["measure_time", "admin1", "prefix24"])
