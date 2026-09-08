@@ -102,14 +102,48 @@ def complete_and_score(raw: pd.DataFrame, cfg) -> pd.DataFrame:
     return d.rename(columns={"IPS": "ips", "FBS": "fbs"})
 
 
-def draw(d: pd.DataFrame, out: Path):
+def rescore_complete_cycles(path: Path, quality_path: Path) -> pd.DataFrame:
+    """Remove incomplete measurements and recompute every retrospective ratio."""
+    d = pd.read_csv(path)
+    q = pd.read_parquet(quality_path, columns=["measure_time", "is_complete"])
+    d["measure_time"] = pd.to_datetime(d.measure_time, utc=True)
+    q["measure_time"] = pd.to_datetime(q.measure_time, utc=True)
+    d = d.merge(q, on="measure_time", how="inner")
+    d = d[d.is_complete.astype(bool)].copy()
+    for sig in ("ips", "fbs"):
+        d[f"{sig.upper()}_7d_mean"] = d.groupby("admin1")[sig].transform(
+            lambda x: x.shift(1).rolling(84, min_periods=84).mean())
+        d[f"{sig.upper()}_ratio"] = d[sig] / d[f"{sig.upper()}_7d_mean"].replace(0, np.nan)
+    d["ips_outage"] = d.IPS_ratio.lt(.90) & d.IPS_7d_mean.notna()
+    d["fbs_outage"] = d.FBS_ratio.lt(.95) & d.IPS_ratio.lt(.95) & d.FBS_7d_mean.notna()
+    d["BGP"] = np.nan; d["BGP_7d_mean"] = np.nan; d["BGP_ratio"] = np.nan; d["bgp_outage"] = False
+    return d.drop(columns="is_complete")
+
+
+def attack_events(cfg, start, end):
+    ev = pd.read_csv(cfg.resource_path("event_registry"), dtype=str, keep_default_na=False)
+    roles = {"attack_national", "attack_regional", "blind_test", "stress_test"}
+    ev = ev[ev.analysis_role.isin(roles)].copy()
+    ev["anchor"] = pd.to_datetime(ev.primary_anchor_utc, utc=True, errors="coerce")
+    return ev[ev.anchor.between(start, end)].sort_values("anchor")
+
+
+def draw(d: pd.DataFrame, out: Path, cfg):
     states = sorted(d.admin1.unique()); times = sorted(d.measure_time.unique())
     x = np.arange(len(times)); state_index = {s:i for i,s in enumerate(states)}
+    t0, t1 = pd.Timestamp(times[0]), pd.Timestamp(times[-1])
+    war = attack_events(cfg, t0, t1)
+    event_x = [(pd.Timestamp(row.anchor)-t0).total_seconds() / (t1-t0).total_seconds() * (len(times)-1) for _, row in war.iterrows()]
     fig, ax = plt.subplots(figsize=(18, max(6, .42 * len(states))))
     ax.set_facecolor("#eeeeee")
     for signal, col, offset in [("bgp_outage", "#1976d2", -.25), ("fbs_outage", "#2ca02c", 0), ("ips_outage", "#d62728", .25)]:
         q = d[d[signal]]
         ax.vlines([times.index(t) for t in q.measure_time], [state_index[s]+offset-.1 for s in q.admin1], [state_index[s]+offset+.1 for s in q.admin1], color=col, lw=.7)
+    for j, (xx, (_, row)) in enumerate(zip(event_x, war.iterrows())):
+        ax.axvline(xx, color="#7b1fa2", lw=1.1, alpha=.85, zorder=0)
+        ax.text(xx, len(states)-.42 if j % 2 == 0 else len(states)-1.05,
+                pd.Timestamp(row.anchor).strftime("%m-%d") + " " + row.event_id.replace("E2024_", ""),
+                rotation=90, va="top", ha="right", fontsize=7, color="#6a1b9a")
     ax.set_yticks(range(len(states)), states); ax.set_ylim(-.6, len(states)-.4)
     ticks = np.linspace(0, len(times)-1, min(10, len(times)), dtype=int)
     ax.set_xticks(ticks, [pd.Timestamp(times[i]).strftime("%Y-%m") for i in ticks], rotation=35, ha="right")
@@ -118,18 +152,28 @@ def draw(d: pd.DataFrame, out: Path):
     pivot = d.pivot(index="admin1", columns="measure_time", values="IPS_ratio").reindex(states)
     fig, ax = plt.subplots(figsize=(18, max(6, .38 * len(states))))
     im = ax.imshow(pivot, aspect="auto", cmap="RdYlGn", norm=TwoSlopeNorm(vmin=.4, vcenter=1, vmax=1.2))
+    for j, (xx, (_, row)) in enumerate(zip(event_x, war.iterrows())):
+        ax.axvline(xx, color="#7b1fa2", lw=1.1, alpha=.85)
+        ax.text(xx, -.6 if j % 2 == 0 else .15, pd.Timestamp(row.anchor).strftime("%m-%d"), rotation=90, va="bottom", ha="right", fontsize=7, color="#6a1b9a")
     ax.set_yticks(range(len(states)), states); ax.set_xticks(ticks, [pd.Timestamp(times[i]).strftime("%Y-%m") for i in ticks], rotation=35, ha="right")
     ax.set_title("IPS ratio: current responsive IPs / preceding 7-day mean"); fig.colorbar(im, ax=ax, label="IPS ratio")
     fig.tight_layout(); fig.savefig(out / "ips_ratio_heatmap.png", dpi=220); plt.close(fig)
 
 
 def main():
-    ap = argparse.ArgumentParser(); ap.add_argument("--output-dir", required=True); ap.add_argument("--config", default=None); args = ap.parse_args()
+    ap = argparse.ArgumentParser(); ap.add_argument("--output-dir", required=True); ap.add_argument("--config", default=None)
+    ap.add_argument("--from-signals", help="Existing raw signal CSV to redraw without querying ClickHouse")
+    ap.add_argument("--cycle-quality", help="Cycle-quality parquet; required with --from-signals")
+    args = ap.parse_args()
     cfg = load_config(args.config, run_id="figure8_like", mode="real")
     out = Path(args.output_dir); out.mkdir(parents=True, exist_ok=True)
-    d = complete_and_score(query_signals(cfg), cfg)
+    if args.from_signals:
+        if not args.cycle_quality: ap.error("--cycle-quality is required with --from-signals")
+        d = rescore_complete_cycles(Path(args.from_signals), Path(args.cycle_quality))
+    else:
+        d = complete_and_score(query_signals(cfg), cfg)
     d.to_csv(out / "region_cycle_signals.csv", index=False, encoding="utf-8-sig")
-    draw(d, out)
+    draw(d, out, cfg)
     print({"states": int(d.admin1.nunique()), "cycles": int(d.measure_time.nunique()), "rows": len(d), "ips_outage": int(d.ips_outage.sum()), "fbs_outage": int(d.fbs_outage.sum()), "output": str(out)})
 
 if __name__ == "__main__": main()
