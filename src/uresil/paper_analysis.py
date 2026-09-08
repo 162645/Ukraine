@@ -169,25 +169,57 @@ def run(cfg) -> dict:
         if not universe.empty:
             n_all = universe.dst_ip.nunique() if "dst_ip" in universe else 0
             regional = universe[universe.get("regional_eligible", 0).astype(bool)] if "regional_eligible" in universe else universe.iloc[0:0]
+            def counts(frame):
+                return {"ip_count": int(frame.dst_ip.nunique()) if "dst_ip" in frame else 0,
+                        "prefix24_count": int(frame.prefix24.nunique()) if "prefix24" in frame else 0,
+                        "asn_count": int(frame.target_asn.nunique()) if "target_asn" in frame else 0,
+                        "admin1_count": int(frame.target_admin1.nunique()) if "target_admin1" in frame else 0}
+            base_n = max(n_all, 1)
+            def flagged(flag):
+                mask = labels.get(flag, pd.Series(False, index=labels.index))
+                return labels[mask.astype(bool)]
             summary_rows = [
-                {"stage": "All target IPs", "ip_n": int(n_all)},
-                {"stage": "Ever responsive", "ip_n": int(n_all)},
-                {"stage": "Valid Admin1", "ip_n": int(regional.dst_ip.nunique()) if "dst_ip" in regional else 0},
+                {"stage": "All target IPs", **counts(universe)},
+                {"stage": "Ever responsive", **counts(universe)},
+                {"stage": "Valid Admin1", **counts(regional)},
             ]
             if not labels.empty:
                 summary_rows += [
-                    {"stage": "Activity estimable", "ip_n": int(labels.dst_ip.nunique())},
-                    {"stage": "Sensitivity estimable >=2", "ip_n": int(labels.get("support_ge_2", pd.Series(dtype=bool)).sum())},
-                    {"stage": "Sensitivity estimable >=3", "ip_n": int(labels.get("support_ge_3", pd.Series(dtype=bool)).sum())},
-                    {"stage": "Sensitivity estimable >=4", "ip_n": int(labels.get("support_ge_4", pd.Series(dtype=bool)).sum())},
+                    {"stage": "Activity estimable", **counts(labels)},
+                    {"stage": "Sensitivity estimable >=2", **counts(flagged("support_ge_2"))},
+                    {"stage": "Sensitivity estimable >=3", **counts(flagged("support_ge_3"))},
+                    {"stage": "Sensitivity estimable >=4", **counts(flagged("support_ge_4"))},
                 ]
-            _write(pd.DataFrame(summary_rows), rt / "dataset_summary.csv")
+            summary = pd.DataFrame(summary_rows)
+            summary["retained_pct"] = 100.0 * summary.ip_count / base_n
+            _write(summary, rt / "dataset_summary.csv")
         else:
-            _write(pd.DataFrame(columns=["stage", "ip_n"]), rt / "dataset_summary.csv")
+            _write(pd.DataFrame(columns=["stage", "ip_count", "prefix24_count", "asn_count", "admin1_count", "retained_pct"]), rt / "dataset_summary.csv")
         events = _read(rt / "calibration_events.csv")
-        _write(events, rt / "calibration_event_summary.csv")
+        event_audit = _read(rt / "calibration_event_audit.csv")
+        if not events.empty:
+            ce = events.copy()
+            rename = {"geo_name": "state", "event_date": "date", "start_utc": "start", "end_utc": "end", "evidence_tier": "evidence_tier", "episode_id_main": "episode_id"}
+            ce = ce.rename(columns=rename)
+            if not event_audit.empty and "event_id" in event_audit:
+                ce = ce.merge(event_audit[[c for c in ("event_id", "outage_cycle_n", "explicit_clear_cycle_n") if c in event_audit]], on="event_id", how="left")
+            ce["support_cycles"] = ce.get("outage_cycle_n", pd.Series(np.nan, index=ce.index))
+            ce["explicit_clear"] = ce.get("explicit_clear_cycle_n", pd.Series(np.nan, index=ce.index)).gt(0)
+            for c in ("state", "date", "start", "end", "quality", "evidence_tier", "episode_id", "explicit_clear", "support_cycles"):
+                if c not in ce: ce[c] = np.nan
+            _write(ce[["event_id", "state", "date", "start", "end", "quality", "evidence_tier", "episode_id", "explicit_clear", "support_cycles"]], rt / "calibration_event_summary.csv")
+        else:
+            _write(pd.DataFrame(columns=["event_id", "state", "date", "start", "end", "quality", "evidence_tier", "episode_id", "explicit_clear", "support_cycles"]), rt / "calibration_event_summary.csv")
         attacks = _read(cfg.root / str(cfg.raw.get("freeze", {}).get("event_registry", "config/event_registry_v2.csv")))
-        _write(attacks, rt / "attack_event_summary.csv")
+        if not attacks.empty:
+            aa = attacks[attacks.get("analysis_role", "").astype(str).str.startswith("attack")].copy()
+            aa = aa.rename(columns={"primary_anchor_utc": "date", "attack_start_utc": "attack_start", "outage_start_utc": "power_impact_start", "outage_end_utc": "recovery_window", "analysis_treated_admin1": "affected_states", "label_quality": "confidence"})
+            aa["main_window"] = aa.get("network_anomaly_start_utc", pd.Series("", index=aa.index))
+            for c in ("event_id", "date", "attack_start", "power_impact_start", "main_window", "affected_states", "recovery_window", "confidence"):
+                if c not in aa: aa[c] = np.nan
+            _write(aa[["event_id", "date", "attack_start", "power_impact_start", "main_window", "affected_states", "recovery_window", "confidence"]], rt / "attack_event_summary.csv")
+        else:
+            _write(pd.DataFrame(columns=["event_id", "date", "attack_start", "power_impact_start", "main_window", "affected_states", "recovery_window", "confidence"]), rt / "attack_event_summary.csv")
         _write(_quality_table(cfg), rt / "data_quality_summary.csv")
         # Threshold/support robustness is a pre-registered grid.  It is a
         # contract table until real attack outcomes are available.
@@ -205,6 +237,15 @@ def run(cfg) -> dict:
                 tables["h2_continuous_association"] = assoc
         for name, table in tables.items():
             _write(table, rt / f"{name}.csv")
+        main_rows = []
+        for hyp, name, metric in (("H1", "h1_ip_group_heterogeneity", "peak_drop"), ("H2", "h2_sensitivity_generalization", "peak_drop"), ("H2", "h2_sensitivity_generalization", "outage_hours"), ("H2", "h2_sensitivity_generalization", "recovery_time_h"), ("H3", "h3_activity_x_sensitivity", "peak_drop"), ("H3", "h3_activity_x_sensitivity", "outage_hours"), ("H3", "h3_activity_x_sensitivity", "recovery_time_h"), ("H4", "h4_ips_loss_decomposition", "loss_contribution")):
+            t = tables[name]
+            if t.empty or metric not in t: continue
+            v = pd.to_numeric(t[metric], errors="coerce").dropna()
+            if v.empty: continue
+            se = v.std(ddof=1) / np.sqrt(len(v)) if len(v) > 1 else np.nan
+            main_rows.append({"Hypothesis": hyp, "Metric": metric, "Effect": float(v.mean()), "CI_lo": float(v.mean() - 1.96 * se) if pd.notna(se) else np.nan, "CI_hi": float(v.mean() + 1.96 * se) if pd.notna(se) else np.nan, "Support": int(len(v)), "Conclusion": "descriptive; inferential conclusion requires real event support"})
+        _write(pd.DataFrame(main_rows, columns=["Hypothesis", "Metric", "Effect", "CI_lo", "CI_hi", "Support", "Conclusion"]), rt / "h1_h4_main_results.csv")
         # Explicit validation artifacts make the evidence boundary auditable.
         h4 = tables["h4_ips_loss_decomposition"]
         if h4.empty:
@@ -217,7 +258,33 @@ def run(cfg) -> dict:
         _write(assoc, rt / "attack_validation_summary.csv")
         if not labels.empty:
             _write(labels, fd / "fig05_activity_sensitivity_labels.csv")
+            _write(labels, fd / "fig05_activity_distribution.csv")
             _write(labels[[c for c in labels.columns if c in {"dst_ip", "target_admin1", "activity_score_raw", "activity_decile", "s_reach", "s_reach_quintile", "support_episode_n_primary"}]], fd / "fig07_activity_vs_sensitivity.csv")
+            activity_rows = []
+            a = pd.to_numeric(labels.get("activity_score_raw"), errors="coerce")
+            for x in a.dropna().sort_values().to_numpy():
+                activity_rows.append({"kind": "ecdf", "activity": float(x), "ip_n": 1})
+            if "activity_decile" in labels:
+                dec = labels.groupby("activity_decile", dropna=False).size().reset_index(name="ip_n")
+                dec["kind"] = "decile"
+                dec["population_share"] = dec.ip_n / dec.ip_n.sum()
+                activity_rows.extend(dec.rename(columns={"activity_decile": "activity"}).to_dict("records"))
+            _write(pd.DataFrame(activity_rows, columns=["kind", "activity", "ip_n", "population_share"]), rt / "activity_distribution.csv")
+            sens_rows = []
+            s = pd.to_numeric(labels.get("s_reach_primary"), errors="coerce")
+            for x in s.dropna().sort_values().to_numpy():
+                sens_rows.append({"kind": "ecdf", "s_reach": float(x), "ip_n": 1})
+            if "support_episode_n_primary" in labels:
+                sup = labels.groupby("support_episode_n_primary", dropna=False).size().reset_index(name="ip_n")
+                sup["kind"] = "support"
+                sens_rows.extend(sup.rename(columns={"support_episode_n_primary": "support_episode_n"}).to_dict("records"))
+            _write(pd.DataFrame(sens_rows, columns=["kind", "s_reach", "support_episode_n", "ip_n"]), rt / "sensitivity_distribution.csv")
+            _write(labels[[c for c in labels.columns if c in {"dst_ip", "target_admin1", "s_reach_primary", "s_reach", "support_episode_n_primary", "s_reach_quintile"}]], fd / "fig06_sensitivity_distribution.csv")
+        else:
+            _write(pd.DataFrame(columns=["kind", "activity", "ip_n", "population_share"]), rt / "activity_distribution.csv")
+            _write(pd.DataFrame(columns=["kind", "s_reach", "support_episode_n", "ip_n"]), rt / "sensitivity_distribution.csv")
+            _write(pd.DataFrame(columns=["dst_ip", "target_admin1", "s_reach_primary", "s_reach", "support_episode_n_primary", "s_reach_quintile"]), fd / "fig05_activity_distribution.csv")
+            _write(pd.DataFrame(columns=["dst_ip", "target_admin1", "s_reach_primary", "s_reach", "support_episode_n_primary", "s_reach_quintile"]), fd / "fig06_sensitivity_distribution.csv")
         canonical = _read(cfg.out_dir("data_derived", ensure=False) / "canonical_ips_fbs_2h.parquet")
         if not canonical.empty:
             _write(canonical, fd / "fig02_ips_fbs_oblast_time.csv")
@@ -287,6 +354,6 @@ def run(cfg) -> dict:
                     "event_anchor": "external registry; never curve-selected", "sample_definition": "frozen canonical or label population as stated",
                     "source_table": src.name, "data_rows": int(len(_read(src)))}
             (fd / f"{stem}.meta.json").write_text(json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8")
-    return {"status": "ok", "outputs": [str(rt / f"{x}.csv") for x in tables] + [str(rt / x) for x in ("dataset_summary.csv", "calibration_event_summary.csv", "attack_event_summary.csv", "threshold_sensitivity.csv", "data_quality_summary.csv", "h4_validation.csv", "attack_validation_summary.csv")] + [str(fd)],
+    return {"status": "ok", "outputs": [str(rt / f"{x}.csv") for x in tables] + [str(rt / x) for x in ("dataset_summary.csv", "calibration_event_summary.csv", "attack_event_summary.csv", "activity_distribution.csv", "sensitivity_distribution.csv", "h1_h4_main_results.csv", "threshold_sensitivity.csv", "data_quality_summary.csv", "h4_validation.csv", "attack_validation_summary.csv")] + [str(fd)],
             "h1_rows": len(tables["h1_ip_group_heterogeneity"]), "h2_rows": len(tables["h2_sensitivity_generalization"]),
             "h3_rows": len(tables["h3_activity_x_sensitivity"]), "h4_rows": len(tables["h4_ips_loss_decomposition"])}
