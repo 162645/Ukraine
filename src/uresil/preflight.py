@@ -83,6 +83,16 @@ def validate_final_calibration_workbook(cfg: Config) -> list[str]:
     return errors
 
 
+def validate_schedule_registry(cfg: Config) -> list[str]:
+    """Compatibility entry point for the frozen planned-outage registry.
+
+    v5 uses the reviewed workbook as the formal source.  Older callers used
+    this name for the same structural gate; keeping the alias prevents stale
+    tests and downstream tools from silently bypassing the new contract.
+    """
+    return validate_final_calibration_workbook(cfg)
+
+
 def validate_oblast_execution_registry(cfg: Config) -> list[str]:
     d = cfg.load_oblast_execution_registry()
     errors: list[str] = []

@@ -37,8 +37,10 @@ For endpoint i and scheduled-outage event e:
 
 For each state-level outage window, normal cycles are complete, non-outage
 cycles from the same weekday-by-two-hour slot. An IP contributes when it has
-adequate normal and outage cycles and stable normal reachability. No positive
-drop, recovery, or RTT threshold turns an IP into a binary power label. The
+adequate normal and outage cycles. Activity is a continuous covariate; the
+legacy 0.8 response-rate rule is diagnostic only and does not exclude low-
+Activity IPs. No positive drop, recovery, or RTT threshold turns an IP into a
+binary power label. The
 primary transition buffer is 30 minutes.
 
 Explicit state-level no-outage intervals in the same daily schedule are retained
@@ -52,12 +54,12 @@ state outage events. `S_reach` and `S_rtt` remain separate; RTT is evaluated
 only for responsive observations. Frozen low/middle/high strata are calculated
 within each state solely for attack-time presentation.
 
-## Stable comparison pool
+## Activity-supported comparison pool
 
-B1 is estimated only from complete cycles outside registered regional scheduled
-outages and registered energy events. No scheduled-outage outcome contributes to
-B1 membership. The continuous state-level sensitivity table is joined to B1
-registry.
+The primary population is every region-mapped endpoint with at least the
+configured clean-normal-cycle support. The raw Activity score is retained for
+all such endpoints; B1 is only a legacy diagnostic alias and never gates the
+canonical IPS/FBS or planned-outage sensitivity population.
 
 ## Independent application
 

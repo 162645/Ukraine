@@ -28,7 +28,7 @@ from uresil.time_contract import measurement_time_contract
 # features + expB matching outputs, so moving it earlier would change the
 # scientific sample rather than merely changing execution order.
 STAGE_ORDER = ["preflight", "audit", "panels", "canonicalSignals", "baseline", "calibrate", "sensorPanels",
-               "features", "expB", "expF", "expD", "figures", "validate"]
+               "features", "expB", "expF", "expD", "paperAnalysis", "figures", "validate"]
 
 
 def completed(cfg, stage: str) -> bool:
@@ -72,9 +72,15 @@ def execute(stage: str, cfg):
     if stage == "expD":
         from uresil import exp_d_recovery_debt as m
         return m.run(cfg)
+    if stage == "paperAnalysis":
+        from uresil import paper_analysis as m
+        return m.run(cfg)
     if stage == "figures":
         from uresil import viz
+        from uresil.viz import paper_figures
         results = [viz.render_all(cfg, lang) for lang in ("zh", "en")]
+        paper = paper_figures.render(cfg, "en")
+        results.append(paper)
         return {"status": "warning" if any(r["warnings"] for r in results) else "ok",
                 "outputs": sum((r["outputs"] for r in results), []),
                 "warnings": sum((r["warnings"] for r in results), [])}
@@ -162,8 +168,15 @@ def main():
         notice = cfg.run_base / "_DEMO_NOTICE.txt"
         notice.write_text("SYNTHETIC DATA — FOR PIPELINE TESTING ONLY — NOT FOR SCIENTIFIC USE\n", encoding="utf-8")
         from uresil import viz
+        from uresil import paper_analysis
+        from uresil.viz import paper_figures
         demo_outputs = [str(notice)]
         demo_warnings = []
+        contract = paper_analysis.run(cfg)
+        demo_outputs.extend(contract.get("outputs", []))
+        rendered_paper = paper_figures.render(cfg, "en")
+        demo_outputs.extend(rendered_paper.get("outputs", []))
+        demo_warnings.extend(rendered_paper.get("warnings", []))
         for lang in ("zh", "en"):
             rendered = viz.render_all(cfg, lang)
             demo_outputs.extend(rendered.get("outputs", []))

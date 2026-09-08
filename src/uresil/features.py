@@ -70,6 +70,7 @@ def event_features_for_series(s: pd.DataFrame, cfg: Config, *, baseline: float =
     post = R[R.index >= 0]
     onset = _first_consecutive(post.index.to_numpy(float), post.values < lower_band,
                                int(ew["abnormal_consecutive"])) if len(post) else np.nan
+    outage_hours = float((post < base * 0.90).sum() * cycle_h) if len(post) else np.nan
 
     t50 = t90 = np.nan
     censored = 1
@@ -92,6 +93,7 @@ def event_features_for_series(s: pd.DataFrame, cfg: Config, *, baseline: float =
         "max_deficit": max_deficit, "nadir_h": nadir_h,
         "deficit_auc_24h": auc24, "deficit_auc_full": auc,
         "onset_delay_h": onset, "t50_h": t50, "t90_h": t90,
+        "outage_hours": outage_hours,
         "recovery_censored": censored, "pretrend_slope": pre_slope,
         "n_cycles": int(len(R)),
     }

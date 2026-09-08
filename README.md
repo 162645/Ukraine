@@ -11,15 +11,15 @@ assignment, inferred queue membership, or attack-tuned endpoint classifier.
 The archived binary-sensor implementation is tagged
 `archive-v4-regional-operator-isp-20260906`.
 
-The analysis has two main populations:
+The primary endpoint population is every region-mapped IP with the configured
+minimum clean-normal-cycle support (24 by default). Raw Activity is retained as
+a continuous covariate; `B1` is a legacy stability diagnostic and does not gate
+canonical IPS/FBS or sensitivity. For every activity-supported IP with usable
+state-level planned-outage evidence, `S_reach = reach(normal) - reach(outage)`
+and `S_rtt = (RTT(outage) - RTT(normal)) / RTT(normal)`. The two scores remain
+separate and are averaged equally across independent outage episodes.
 
-- `B1`: stable endpoints built only from complete non-event measurement cycles.
-- Frozen state-level sensitivity: for every stable IP with usable state-level
-  planned-outage evidence, `S_reach = reach(normal) - reach(outage)` and
-  `S_rtt = (RTT(outage) - RTT(normal)) / RTT(normal)`. The two scores remain
-  separate and are averaged across independent outage events.
-
-Calibration begins strictly after the label-free B1 stability filter. Normal
+Calibration begins from the activity-supported regional universe. Normal
 controls use the same weekday-by-two-hour slot and exclude registered outage
 cycles. Explicit same-day no-outage intervals are retained as an auxiliary
 within-day contrast. Consecutive daily restrictions are collapsed to one
@@ -93,8 +93,8 @@ python run_all.py --mode real --run-id v5_simple_calibration_01 --stage all --re
 Stage order:
 
 ```text
-preflight → audit → panels → baseline → calibrate → sensorPanels
-→ features → expB → expF → expD → figures → validate
+preflight → audit → panels → canonicalSignals → baseline → calibrate
+→ sensorPanels → features → expB → expF → expD → paperAnalysis → figures → validate
 ```
 
 The main closure output is:

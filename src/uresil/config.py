@@ -85,6 +85,8 @@ class Config:
     def closure(self): return self.section("closure")
     @property
     def figures(self): return self.section("figures")
+    @property
+    def figure_analysis(self): return self.section("figure_analysis")
 
     @property
     def max_memory_bytes(self) -> int:

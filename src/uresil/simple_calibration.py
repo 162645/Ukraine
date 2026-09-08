@@ -321,13 +321,14 @@ def score_event_rows(raw: pd.DataFrame, cycle_sets: dict[str, list[int]], cfg: C
     # response-rate rule as a diagnostic flag only; low-Activity endpoints are
     # part of the estimand and must remain eligible when cycle support exists.
     d["legacy_stable_normal"] = d.p_normal.ge(float(scfg.get("stable_reach_rate", 0.8)))
-    d["is_event_usable"] = (
+    d["is_event_candidate"] = (
         d.n_normal.ge(int(scfg["min_normal_cycles"])) &
         d.n_outage.ge(int(scfg["min_outage_cycles"]))
     )
-    # Compatibility alias for downstream readers of early run artifacts.  It
-    # now means usable state-level evidence, never a positive/negative label.
-    d["is_event_candidate"] = d["is_event_usable"]
+    # Legacy readers/tests still consume is_event_usable as the old stable
+    # diagnostic.  The formal pipeline uses is_event_candidate, so Activity
+    # below 0.8 is retained in the primary estimand rather than filtered.
+    d["is_event_usable"] = d["is_event_candidate"] & d["legacy_stable_normal"]
     return d
 
 
@@ -392,7 +393,7 @@ def aggregate_sensors(candidates: pd.DataFrame) -> pd.DataFrame:
     """Freeze distinct P1 and P1+P2 continuous per-IP sensitivities."""
     if candidates.empty:
         return pd.DataFrame(columns=["dst_ip", "support_episode_n", "s_reach_primary", "s_rtt_primary", "s_reach_augmented", "s_rtt_augmented"])
-    usable = candidates.get("is_event_usable", candidates.get("is_event_candidate", False))
+    usable = candidates.get("is_event_candidate", candidates.get("is_event_usable", False))
     d = candidates[pd.Series(usable, index=candidates.index).astype(bool)].copy()
     if d.empty:
         return pd.DataFrame(columns=["dst_ip", "support_episode_n", "s_reach_primary", "s_rtt_primary", "s_reach_augmented", "s_rtt_augmented"])
@@ -462,7 +463,9 @@ def run(cfg: Config) -> dict:
     if not parts: raise RuntimeError("endpoint score parts are required before calibration")
     # Canonical sensitivity population: every regional target with sufficient
     # clean-cycle support.  Do not apply the legacy response-rate B1 gate.
-    support = pd.concat([pd.read_parquet(p, columns=["dst_ip", "prefix24", "activity_estimable"])
+    support = pd.concat([pd.read_parquet(p, columns=["dst_ip", "prefix24", "activity_estimable",
+                                                       "activity_score_raw", "activity_score_smoothed",
+                                                       "n_normal", "x_normal"])
                          for p in parts], ignore_index=True)
     support = support[support.activity_estimable.astype(bool)].drop_duplicates(["dst_ip", "prefix24"])
     targets = universe.merge(support[["dst_ip", "prefix24"]], on=["dst_ip", "prefix24"], how="inner")
@@ -497,7 +500,7 @@ def run(cfg: Config) -> dict:
                             scored["event_id"] = event_id
                             for col in ("use_main", "use_augmented", "episode_id_main", "episode_id_augmented", "evidence_tier"):
                                 scored[col] = event[col]
-                            selected = scored[scored.is_event_usable].copy()
+                            selected = scored[scored.is_event_candidate].copy()
                         selected.to_parquet(path, index=False)
                     # Old cache parts are still valid expensive query results;
                     # restore immutable event metadata before episode reduction.
@@ -520,7 +523,15 @@ def run(cfg: Config) -> dict:
     episode_audit = pd.concat([audit[audit.use_main.eq(1)].groupby(["geo_name", "episode_id_main"], as_index=False).agg(event_n=("event_id", "nunique"), estimable_event_n=("sensitivity_estimable", "sum")).assign(analysis="primary"), audit[audit.use_augmented.eq(1)].groupby(["geo_name", "episode_id_augmented"], as_index=False).agg(event_n=("event_id", "nunique"), estimable_event_n=("sensitivity_estimable", "sum")).assign(analysis="augmented")], ignore_index=True)
     episode_audit.to_csv(rt / "calibration_episode_audit.csv", index=False, encoding="utf-8-sig")
     labels = targets[[c for c in ("dst_ip", "prefix24", "target_admin1", "target_city", "target_asn", "network_stratum") if c in targets]].drop_duplicates(["dst_ip", "prefix24"]).copy(); labels["in_B1"] = 1
+    labels = labels.merge(support[["dst_ip", "prefix24", "activity_score_raw", "activity_score_smoothed",
+                                   "n_normal", "x_normal"]], on=["dst_ip", "prefix24"], how="left", validate="one_to_one")
     labels = labels.merge(sensors, on=["dst_ip", "prefix24", "target_admin1"], how="left", suffixes=("", "_score"))
+    # Activity is a continuous covariate.  Deciles are descriptive, within
+    # Admin1, and never used as a population gate.  States with fewer than ten
+    # distinct estimable values remain explicitly ungrouped (NA).
+    labels["activity_decile"] = _within_state_quantile(
+        labels, "activity_score_raw", int(cfg.raw.get("ip_activity", {}).get("quantiles", 10)),
+        "activity_decile")
     min_events = int(cfg.raw.get("ip_sensitivity", {}).get("min_independent_events",
                         cfg.simple_calibration.get("min_independent_events", 3)))
     support_n = pd.to_numeric(labels.get("support_episode_n_primary", pd.Series(np.nan, index=labels.index)), errors="coerce")

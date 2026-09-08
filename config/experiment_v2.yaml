@@ -151,6 +151,11 @@ macro_signals:
   fbs_baseline_days: 7
   fbs_outage_ratio: 0.95
   fbs_monthly_min_ever_responsive_ips: 3
+figure_analysis:
+  event_pre_h: 24
+  event_post_h: 72
+  main_activity_bins: 10
+  main_sensitivity_bins: 5
 aggregation:
   primary: prefix24_equal
   report:

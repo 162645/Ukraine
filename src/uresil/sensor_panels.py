@@ -20,7 +20,7 @@ from .progress import HeartbeatProgress, get_logger, pbar, step
 
 # ALL is the canonical endpoint population.  B1/B2 remain compatibility
 # methods for historical outputs only.
-METHODS = ("ALL", "B1", "B2", "S_REACH", "S_RTT")
+METHODS = ("ALL", "B1", "B2", "ACTIVITY", "S_REACH", "S_RTT", "ACTIVITY_S_REACH")
 
 
 def _force_recompute(cfg: Config) -> bool:
@@ -74,7 +74,8 @@ def _calibrated_membership(cfg: Config) -> pd.DataFrame:
                                      "s_reach_quintile", "s_rtt_quintile",
                                      "s_reach_tier", "s_rtt_tier"])
     d = pd.read_parquet(path)
-    cols = [c for c in ("dst_ip", "s_reach", "s_rtt", "s_reach_quintile",
+    cols = [c for c in ("dst_ip", "activity_score_raw", "activity_decile",
+                        "s_reach", "s_rtt", "s_reach_quintile",
                         "s_rtt_quintile", "s_reach_tier", "s_rtt_tier") if c in d]
     return d[cols].drop_duplicates("dst_ip")
 
@@ -99,11 +100,14 @@ def _read_sensor_part(cfg: Config, path: str, columns: list[str]) -> pd.DataFram
     # Sensitivity remains continuous; no attack-informed or thresholded B2 set
     # is allowed to become the primary analysis sample.
     d["in_ALL"] = d.get("activity_estimable", d["in_B1"]).astype(bool)
+    d["in_ACTIVITY"] = d["in_ALL"].astype(bool) & d.get(
+        "activity_decile", pd.Series(pd.NA, index=d.index)).notna()
     d["in_B2"] = False
     reach_group = d.get("s_reach_quintile", d.get("s_reach_tier", pd.Series(pd.NA, index=d.index)))
     rtt_group = d.get("s_rtt_quintile", d.get("s_rtt_tier", pd.Series(pd.NA, index=d.index)))
     d["in_S_REACH"] = d["in_ALL"].astype(bool) & reach_group.notna()
     d["in_S_RTT"] = d["in_ALL"].astype(bool) & rtt_group.notna()
+    d["in_ACTIVITY_S_REACH"] = d["in_ACTIVITY"].astype(bool) & reach_group.notna()
     return d
 
 
@@ -117,7 +121,7 @@ def build_denominators(cfg: Config, parts: list[str]) -> pd.DataFrame:
     rows = []
     cols = ["dst_ip", "prefix24", "target_asn", "target_country", "target_admin1",
             "network_stratum", "pN", "activity_score_raw", "activity_score_smoothed",
-            "activity_estimable", "in_B1", "in_B2"]
+            "activity_estimable", "activity_score_raw", "activity_decile", "in_B1", "in_B2"]
     for p in pbar(parts, desc="sensor denominators", unit="part"):
         d = _read_sensor_part(cfg, p, cols)
         group_cols = ["prefix24", "target_asn", "target_country", "target_admin1", "network_stratum"]
@@ -127,7 +131,13 @@ def build_denominators(cfg: Config, parts: list[str]) -> pd.DataFrame:
                 continue
             z["sensitivity_stratum"] = "all"
             z["sensitivity_value"] = np.nan
-            if m == "S_REACH":
+            if m == "ACTIVITY":
+                z["sensitivity_stratum"] = z["activity_decile"].astype(str)
+                z["sensitivity_value"] = pd.to_numeric(z["activity_score_raw"], errors="coerce")
+            elif m == "ACTIVITY_S_REACH":
+                z["sensitivity_stratum"] = z["activity_decile"].astype(str) + "|" + z["s_reach_quintile"].astype(str)
+                z["sensitivity_value"] = pd.to_numeric(z["s_reach"], errors="coerce")
+            elif m == "S_REACH":
                 z["sensitivity_stratum"] = (z["s_reach_quintile"] if "s_reach_quintile" in z else z["s_reach_tier"]).astype(str)
                 z["sensitivity_value"] = pd.to_numeric(z["s_reach"], errors="coerce")
             elif m == "S_RTT":
@@ -161,10 +171,10 @@ def _event_responses(cfg: Config, ch: CHClient, event: pd.Series, parts: list[st
     num = []
     cols = ["dst_ip", "prefix24", "target_asn", "target_country", "target_admin1",
             "network_stratum", "activity_score_raw", "activity_score_smoothed",
-            "activity_estimable", "in_B1", "in_B2"]
+            "activity_estimable", "activity_score_raw", "activity_decile", "in_B1", "in_B2"]
     for p in pbar(parts, desc=f"sensor responses {event['event_id']}", unit="part"):
         sensors = _read_sensor_part(cfg, p, cols)
-        sensors = sensors[sensors.in_ALL | sensors.in_B1 | sensors.in_B2 | sensors.in_S_REACH | sensors.in_S_RTT]
+        sensors = sensors[sensors.in_ALL | sensors.in_B1 | sensors.in_B2 | sensors.in_ACTIVITY | sensors.in_S_REACH | sensors.in_S_RTT]
         if sensors.empty:
             continue
         prefixes = sensors.prefix24.drop_duplicates().astype(str).tolist()
@@ -177,7 +187,11 @@ def _event_responses(cfg: Config, ch: CHClient, event: pd.Series, parts: list[st
             z = r[r.get(f"in_{m}", False)].copy()
             if not z.empty:
                 z["sensitivity_stratum"] = "all"
-                if m == "S_REACH":
+                if m == "ACTIVITY":
+                    z["sensitivity_stratum"] = z["activity_decile"].astype(str)
+                elif m == "ACTIVITY_S_REACH":
+                    z["sensitivity_stratum"] = z["activity_decile"].astype(str) + "|" + z["s_reach_quintile"].astype(str)
+                elif m == "S_REACH":
                     z["sensitivity_stratum"] = (z["s_reach_quintile"] if "s_reach_quintile" in z else z["s_reach_tier"]).astype(str)
                 elif m == "S_RTT":
                     z["sensitivity_stratum"] = (z["s_rtt_quintile"] if "s_rtt_quintile" in z else z["s_rtt_tier"]).astype(str)
