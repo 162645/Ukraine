@@ -158,7 +158,10 @@ def run(cfg) -> dict:
                 elif stem.startswith("fig14"):
                     _write(tables["h4_ips_loss_decomposition"], src)
                 else:
-                    _write(pd.DataFrame(), src)
+                    # Keep a readable CSV even when the upstream table is not
+                    # available yet; an empty file is not a valid source-data
+                    # artifact and hides the missing-evidence state.
+                    _write(pd.DataFrame(columns=["status"]), src)
             meta = {"figure_id": stem, "research_question": spec["hypothesis"],
                     "hypothesis": spec["hypothesis"], "x_axis": spec["x_axis"], "y_axis": spec["y_axis"],
                     "aggregation": "event-state or event-equal where available", "baseline": "frozen clean pre-event or prior 7-day mean",
