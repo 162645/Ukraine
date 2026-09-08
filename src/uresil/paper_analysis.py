@@ -127,6 +127,40 @@ def run(cfg) -> dict:
     with step("Build H1-H4 tables and paper source-data contract", logger):
         features, labels = _feature_tables(cfg)
         tables = _h1_h2_h3_h4(features)
+        # Compact paper tables requested by the plan.  Counts are derived from
+        # frozen artifacts only; absent artifacts produce zero rows, never
+        # fabricated estimates.
+        universe = _read(cfg.out_dir("data_derived", ensure=False) / "target_ip_universe.parquet")
+        if not universe.empty:
+            n_all = universe.dst_ip.nunique() if "dst_ip" in universe else 0
+            regional = universe[universe.get("regional_eligible", 0).astype(bool)] if "regional_eligible" in universe else universe.iloc[0:0]
+            summary_rows = [
+                {"stage": "All target IPs", "ip_n": int(n_all)},
+                {"stage": "Ever responsive", "ip_n": int(n_all)},
+                {"stage": "Valid Admin1", "ip_n": int(regional.dst_ip.nunique()) if "dst_ip" in regional else 0},
+            ]
+            if not labels.empty:
+                summary_rows += [
+                    {"stage": "Activity estimable", "ip_n": int(labels.dst_ip.nunique())},
+                    {"stage": "Sensitivity estimable >=2", "ip_n": int(labels.get("support_ge_2", pd.Series(dtype=bool)).sum())},
+                    {"stage": "Sensitivity estimable >=3", "ip_n": int(labels.get("support_ge_3", pd.Series(dtype=bool)).sum())},
+                    {"stage": "Sensitivity estimable >=4", "ip_n": int(labels.get("support_ge_4", pd.Series(dtype=bool)).sum())},
+                ]
+            _write(pd.DataFrame(summary_rows), rt / "dataset_summary.csv")
+        else:
+            _write(pd.DataFrame(columns=["stage", "ip_n"]), rt / "dataset_summary.csv")
+        events = _read(rt / "calibration_events.csv")
+        _write(events, rt / "calibration_event_summary.csv")
+        attacks = _read(cfg.root / str(cfg.raw.get("freeze", {}).get("event_registry", "config/event_registry_v2.csv")))
+        _write(attacks, rt / "attack_event_summary.csv")
+        _write(_read(rt / "quality_report.json"), rt / "data_quality_summary.csv")
+        # Threshold/support robustness is a pre-registered grid.  It is a
+        # contract table until real attack outcomes are available.
+        thresholds = []
+        for x in np.arange(.80, .981, .02): thresholds.append({"signal": "IPS", "threshold": round(float(x), 2)})
+        for x in np.arange(.85, .991, .01): thresholds.append({"signal": "FBS", "threshold": round(float(x), 2)})
+        for x in (2, 3, 4): thresholds.append({"signal": "sensitivity_support", "threshold": x})
+        _write(pd.DataFrame(thresholds), rt / "threshold_sensitivity.csv")
         # Promote existing attack association/recovery outputs without changing
         # their frozen-label semantics.
         existing = rt / "attack_continuous_sensitivity_association.csv"
@@ -168,6 +202,6 @@ def run(cfg) -> dict:
                     "event_anchor": "external registry; never curve-selected", "sample_definition": "frozen canonical or label population as stated",
                     "source_table": src.name, "data_rows": int(len(_read(src)))}
             (fd / f"{stem}.meta.json").write_text(json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8")
-    return {"status": "ok", "outputs": [str(rt / f"{x}.csv") for x in tables] + [str(fd)],
+    return {"status": "ok", "outputs": [str(rt / f"{x}.csv") for x in tables] + [str(rt / x) for x in ("dataset_summary.csv", "calibration_event_summary.csv", "attack_event_summary.csv", "threshold_sensitivity.csv", "data_quality_summary.csv")] + [str(fd)],
             "h1_rows": len(tables["h1_ip_group_heterogeneity"]), "h2_rows": len(tables["h2_sensitivity_generalization"]),
             "h3_rows": len(tables["h3_activity_x_sensitivity"]), "h4_rows": len(tables["h4_ips_loss_decomposition"])}

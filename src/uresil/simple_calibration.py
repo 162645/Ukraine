@@ -518,6 +518,13 @@ def run(cfg: Config) -> dict:
                     "sensitivity_estimable": int(estimable), "recovery_estimable": int(len(cycles["post"]) >= int(cfg.simple_calibration["min_post_cycles"])),
                     "not_estimable_reason": "|".join(reasons), "measurement_start_utc": cfg.study["measurement_start_utc"]})
     candidates = pd.concat(candidate_parts, ignore_index=True) if candidate_parts else pd.DataFrame()
+    # Explicit research-plan artifacts.  These are separate from the legacy
+    # B1-named files so downstream paper code cannot confuse diagnostics with
+    # the canonical population.
+    if candidates.empty:
+        pd.DataFrame().to_parquet(dd / "ip_event_sensitivity.parquet", index=False)
+    else:
+        candidates.to_parquet(dd / "ip_event_sensitivity.parquet", index=False)
     sensors = aggregate_sensors(candidates); sensor_path = dd / "calibrated_sensors.parquet"; sensors.to_parquet(sensor_path, index=False)
     audit = pd.DataFrame(audit_rows); audit.to_csv(rt / "calibration_event_audit.csv", index=False, encoding="utf-8-sig")
     episode_audit = pd.concat([audit[audit.use_main.eq(1)].groupby(["geo_name", "episode_id_main"], as_index=False).agg(event_n=("event_id", "nunique"), estimable_event_n=("sensitivity_estimable", "sum")).assign(analysis="primary"), audit[audit.use_augmented.eq(1)].groupby(["geo_name", "episode_id_augmented"], as_index=False).agg(event_n=("event_id", "nunique"), estimable_event_n=("sensitivity_estimable", "sum")).assign(analysis="augmented")], ignore_index=True)
@@ -545,6 +552,8 @@ def run(cfg: Config) -> dict:
     labels["not_estimable_reason"] = np.where(labels.primary_estimable, "", np.where(~labels.target_admin1.isin(p1_states), "no_calibration_event_for_state", "insufficient_measurement_support"))
     labels["augmented_not_estimable_reason"] = np.where(labels.augmented_estimable, "", np.where(~labels.target_admin1.isin(p2_states), "no_calibration_event_for_state", "insufficient_measurement_support"))
     labels.to_parquet(rt / "b1_full_sensitivity_labels.parquet", index=False); labels.to_csv(rt / "b1_full_sensitivity_labels.csv", index=False, encoding="utf-8-sig")
+    labels.to_parquet(dd / "ip_activity.parquet", index=False)
+    labels[labels.primary_estimable].to_parquet(dd / "ip_sensitivity.parquet", index=False)
     primary = labels[labels.primary_estimable].copy(); augmented = labels[labels.augmented_estimable].copy(); primary.to_csv(rt / "calibrated_sensitivity_primary.csv", index=False, encoding="utf-8-sig"); augmented.to_csv(rt / "calibrated_sensitivity_augmented.csv", index=False, encoding="utf-8-sig")
     state_summary = labels.groupby("target_admin1", dropna=False).agg(
         activity_supported_ip_n=("dst_ip", "nunique"),
@@ -566,4 +575,4 @@ def run(cfg: Config) -> dict:
         robust_rows.append({"target_admin1": state, "ip_n": len(x), "pearson_r": x.s_reach_primary.corr(x.s_reach_augmented), "spearman_rho": x.s_reach_primary.corr(x.s_reach_augmented, method="spearman"), "tier_agreement": (x.s_reach_tier == _within_state_tertile(x, "s_reach_augmented", "tmp")).mean()})
     pd.DataFrame(robust_rows).to_csv(rt / "primary_vs_augmented_robustness.csv", index=False, encoding="utf-8-sig")
     summary = {"raw_ip_n": int(universe.dst_ip.nunique()), "b1_ip_n": int(len(labels)), "calibration_event_n": int(len(events)), "primary_sensor_n": int(labels.primary_estimable.sum()), "augmented_sensor_n": int(labels.augmented_estimable.sum())}; (rt / "calibration_summary.json").write_text(json.dumps(summary, indent=2), encoding="utf-8")
-    return {"status": "ok", "outputs": [str(rt / x) for x in ("calibration_event_audit.csv", "calibration_episode_audit.csv", "b1_full_sensitivity_labels.csv", "calibrated_sensitivity_primary.csv", "calibrated_sensitivity_augmented.csv", "state_sensitivity_summary.csv", "calibration_funnel.csv", "primary_vs_augmented_robustness.csv")], **summary}
+    return {"status": "ok", "outputs": [str(rt / x) for x in ("calibration_event_audit.csv", "calibration_episode_audit.csv", "b1_full_sensitivity_labels.csv", "calibrated_sensitivity_primary.csv", "calibrated_sensitivity_augmented.csv", "state_sensitivity_summary.csv", "calibration_funnel.csv", "primary_vs_augmented_robustness.csv")] + [str(dd / x) for x in ("ip_activity.parquet", "ip_event_sensitivity.parquet", "ip_sensitivity.parquet")], **summary}
