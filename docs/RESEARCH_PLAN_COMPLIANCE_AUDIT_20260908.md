@@ -79,11 +79,38 @@ This is a code-and-artifact audit against the complete pasted research plan
 | Final report with all requested fields | PARTIAL | Core definitions/status are documented; per-figure actual results and real-run evidence remain unavailable. |
 | Scientific boundary | PASS | Code/docs use planned-outage-associated reachability sensitivity, not physical electricity dependence. |
 
-## Verdict
+## Re-audit after 2026-09-08 revision
 
-The repository is **not yet fully compliant** with the pasted plan. The core
-population/sensitivity/canonical-signal redesign is substantially implemented,
-but the publication layer is incomplete: 10+ requested figures, three summary
-tables, threshold robustness, complete H1–H4 inference, and the post-change
-real remote run remain outstanding. The correct release state is
-`PARTIAL / BLOCKED`, not “finished”.
+The following previously missing contract items are now implemented and tested:
+
+- `dataset_summary.csv` has IP, /24, ASN, Admin1 and retained-percentage columns;
+- `calibration_event_summary.csv`, `attack_event_summary.csv`,
+  `activity_distribution.csv`, `sensitivity_distribution.csv`, and
+  `h1_h4_main_results.csv` are generated;
+- `fig05_activity_distribution.csv` and `fig06_sensitivity_distribution.csv`
+  are real source files rather than generic placeholders;
+- Figure 12 uses an Activity-decile × sensitivity-quintile heatmap with
+  hatched insufficient-support cells;
+- event-aligned plots expose `t=0`, ratio plots expose `y=1`, and all registered
+  figure sources have metadata sidecars;
+- local compile, unit tests (`55 passed`), and the full synthetic demo pipeline
+  pass after the changes.
+
+The repository is still **not fully scientifically complete**. The remaining
+gaps are evidence-dependent rather than hidden implementation claims:
+
+1. Figure 3's planned/observed power-exposure lane and Figure 19's power–internet
+   correlation require a validated power exposure join; the code leaves those
+   values empty when that input is unavailable.
+2. Figure 8/9/15/16/17 require real held-out attack, ASN, and RTT rows; generic
+   renderers do not fabricate them. Figure 15, 17 and 19 therefore remain
+   `PASS_WITH_LIMITS`, not evidence of a completed result.
+3. A post-change full ClickHouse run has not been completed because remote SSH
+   authentication currently fails. No real IP count, sensitivity count, or
+   hypothesis result is claimed from the demo.
+4. The source/plot contract is implemented, but visual acceptance at final
+   manuscript size and independent audit remain to be performed on real figures.
+
+The correct release state remains `PARTIAL / BLOCKED`; the code layer is now
+substantially aligned with the document, while the remote data-dependent
+scientific results are not yet available.
