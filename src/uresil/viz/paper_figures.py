@@ -98,12 +98,28 @@ def render(cfg, lang="en"):
                                        ):
         d, src = _source(cfg, stem)
         if d.empty or xcol not in d or "peak_drop" not in d: warnings.append(f"{stem} source data unavailable"); continue
+        if stem == "fig11_h2_sensitivity_gradient":
+            metrics = [("peak_drop", "Peak drop"), ("outage_hours", "Outage hours"), ("recovery_time_h", "Recovery time (h)")]
+            fig, ax = plt.subplots(1, 3, figsize=(cfg.figures["double_column_width_in"], 3.2))
+            for a, (metric, lab) in zip(ax, metrics):
+                if metric not in d: a.text(.5, .5, "Unavailable", ha="center", va="center", transform=a.transAxes); a.set_axis_off(); continue
+                g = d.groupby(xcol, dropna=False)[metric].agg(["mean", "count", "std"]).reset_index(); g["se"] = g["std"] / np.sqrt(g["count"].replace(0, np.nan));
+                a.errorbar(g[xcol].astype(str), g["mean"], yerr=1.96*g["se"], marker="o", color=PALETTE[0], capsize=2); a.set_xlabel(xlabel); a.set_ylabel(lab); a.tick_params(axis="x", rotation=30)
+                if metric == "peak_drop": a.axhline(0, color="0.3", ls=":")
+            outputs += _save(fig, cfg, stem, src, "Sensitivity quintile gradient for peak drop, outage hours, and recovery time with 95% confidence intervals.")
+            continue
         g = d.groupby(xcol, dropna=False).peak_drop.mean().reset_index(); fig, ax = plt.subplots(figsize=(cfg.figures["double_column_width_in"], 3.0)); ax.plot(g[xcol].astype(str), g.peak_drop, marker="o", color=PALETTE[0]); ax.axhline(0, color="0.3", ls=":"); ax.set_xlabel(xlabel); ax.set_ylabel(ylabel); ax.tick_params(axis="x", rotation=30)
         outputs += _save(fig, cfg, stem, src, f"{ylabel} by {xlabel}; estimates are computed from frozen event-state features.")
     d, src = _source(cfg, "fig14_h4_loss_decomposition")
     if not d.empty and {"group", "population_share", "loss_contribution"}.issubset(d):
-        g = d.groupby("group", dropna=False)[["population_share", "loss_contribution"]].mean(); fig, ax = plt.subplots(figsize=(cfg.figures["double_column_width_in"], 3.0)); g.plot.bar(ax=ax, color=[PALETTE[0], PALETTE[1]]); ax.axhline(1, color="0.3", ls=":"); ax.set_xlabel("Group"); ax.set_ylabel("Share"); ax.legend(frameon=False)
-        outputs += _save(fig, cfg, "fig14_h4_loss_decomposition", src, "Population share and IPS-loss contribution by frozen endpoint group.")
+        group_col = "group"; d["group_type"] = d.get("group_type", "Sensitivity")
+        fig, ax = plt.subplots(1, 2, figsize=(cfg.figures["double_column_width_in"], 3.2), sharey=True)
+        for a, (typ, title) in zip(ax, [("S_REACH", "Sensitivity groups"), ("ACTIVITY", "Activity groups")]):
+            q = d[d.group_type.astype(str).str.upper().eq(typ)]
+            if q.empty: a.text(.5, .5, "Unavailable", ha="center", va="center", transform=a.transAxes); a.set_axis_off(); continue
+            g = q.groupby(group_col, dropna=False)[["population_share", "loss_contribution"]].mean(); g.plot.bar(ax=a, color=[PALETTE[0], PALETTE[1]]); a.axhline(1, color="0.3", ls=":"); a.set_title(title, fontsize=9); a.set_xlabel("Group"); a.tick_params(axis="x", rotation=45)
+        ax[0].set_ylabel("Share"); ax[-1].legend(frameon=False)
+        outputs += _save(fig, cfg, "fig14_h4_loss_decomposition", src, "Population share and IPS-loss contribution for sensitivity and Activity endpoint groups; the reference line is one.")
     else: warnings.append("fig14 source data unavailable")
     # Remaining registered figures use deterministic type-specific renderers.
     # They never manufacture values: an empty source is reported as a warning.
@@ -122,8 +138,22 @@ def render(cfg, lang="en"):
         "fig18_threshold_sensitivity": ("threshold", "outage_hours", "Threshold", "Outage hours"),
         "fig19_power_internet_correlation": ("power_exposure", "internet_impact", "Power exposure", "Internet impact"),
     }
+    d, src = _source(cfg, "fig08_attack_overall_signal")
+    if not d.empty and {"rel_h", "attack_reach"}.issubset(d.columns):
+        fig, ax = plt.subplots(figsize=(cfg.figures["double_column_width_in"], 3.0))
+        x = pd.to_numeric(d.rel_h, errors="coerce"); ax.plot(x, pd.to_numeric(d.attack_reach, errors="coerce"), color=PALETTE[0], label="Attack")
+        if "planned_reach" in d: ax.plot(x, pd.to_numeric(d.planned_reach, errors="coerce"), color=PALETTE[1], label="Planned")
+        ax.axvline(0, color="0.35", ls="--", lw=.8); ax.axhline(1, color="0.35", ls=":", lw=.8); ax.set_xlabel("Hours relative to attack"); ax.set_ylabel("Reachability ratio"); ax.legend(frameon=False)
+        outputs += _save(fig, cfg, "fig08_attack_overall_signal", src, "Event-equal attack and planned reachability curves with the registered anchor at t=0.")
+    d, src = _source(cfg, "fig09_q1_q5_event_curves")
+    if not d.empty and {"rel_h", "reach", "sensitivity_quintile"}.issubset(d.columns):
+        fig, ax = plt.subplots(figsize=(cfg.figures["double_column_width_in"], 3.2))
+        for q, g in d.groupby("sensitivity_quintile", dropna=False):
+            g = g.sort_values("rel_h"); ax.plot(g.rel_h, g.reach, marker="o", ms=2.5, lw=1.0, label=str(q))
+        ax.axvline(0, color="0.35", ls="--", lw=.8); ax.axhline(1, color="0.35", ls=":", lw=.8); ax.set_xlabel("Hours relative to attack"); ax.set_ylabel("Reachability ratio"); ax.legend(frameon=False, ncol=5)
+        outputs += _save(fig, cfg, "fig09_q1_q5_event_curves", src, "Event-aligned sensitivity-quintile curves with separate baselines and a t=0 anchor.")
     for stem, (xc, yc, xl, yl) in generic_specs.items():
-        if stem in {"fig00a_cycle_quality", "fig00b_cycle_availability", "fig01_oblast_coverage", "fig03_power_internet_calendar", "fig04_monthly_outage_hours", "fig08_attack_overall_signal", "fig09_q1_q5_event_curves", "fig13_h3_continuous_association", "fig15_network_structure", "fig16_as_event_timeline", "fig17_rtt_heatmap", "fig18_threshold_sensitivity", "fig19_power_internet_correlation"}:
+        if stem in {"fig00a_cycle_quality", "fig00b_cycle_availability", "fig01_oblast_coverage", "fig03_power_internet_calendar", "fig04_monthly_outage_hours", "fig09_q1_q5_event_curves", "fig13_h3_continuous_association", "fig15_network_structure", "fig16_as_event_timeline", "fig17_rtt_heatmap", "fig18_threshold_sensitivity", "fig19_power_internet_correlation"}:
             d, src = _source(cfg, stem)
             if d.empty or xc not in d.columns or yc not in d.columns:
                 warnings.append(f"{stem} source data unavailable")

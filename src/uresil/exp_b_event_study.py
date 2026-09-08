@@ -47,6 +47,7 @@ EXP_B_COMPONENTS = (
     "balances",
     "universe_sensitivity",
     "mean_curves",
+    "sensitivity_curves",
     "state_sensitivity",
     "state_sensitivity_association",
 )
@@ -833,6 +834,12 @@ def run(cfg: Config) -> dict:
                                               anchor=estimand.anchor_utc)
                         if sp.empty:
                             continue
+                        if sensitivity_method == "S_REACH" and "sensitivity_stratum" in sp:
+                            for q, qpanel in sp.groupby("sensitivity_stratum", dropna=False):
+                                qc = event_mean_curve(qpanel, event, estimand)
+                                if not qc.empty:
+                                    qc["sensitivity_quintile"] = str(q)
+                                    _append_component(event_store, "sensitivity_curves", qc)
                         sv = frozen_state_sensitivity_validation(
                             annotate_design(sp, event, estimand, cfg), event, estimand, cfg)
                         if not sv.empty:
@@ -983,6 +990,7 @@ def run(cfg: Config) -> dict:
         "exp_b_placebo.csv": _concat_frames(attack_store["placebos"]),
         "exp_b_method_sensitivity.csv": _concat_frames(attack_store["method_sensitivity"]),
         "exp_b_target_universe_sensitivity.csv": _concat_frames(attack_store["universe_sensitivity"]),
+        "exp_b_sensitivity_curves.csv": _concat_frames(attack_store["sensitivity_curves"]),
         "exp_b_matching_balance.csv": _concat_frames(attack_store["balances"]),
         "exp_b_state_sensitivity_validation.csv": _concat_frames(attack_store["state_sensitivity"]),
         "exp_b_state_sensitivity_association.csv": _concat_frames(attack_store["state_sensitivity_association"]),

@@ -99,6 +99,8 @@ def _h1_h2_h3_h4(features: pd.DataFrame) -> dict[str, pd.DataFrame]:
         return empty
     f = features.copy()
     f["admin1"] = f.get("target_admin1", pd.Series("", index=f.index)).astype(str)
+    f["target_asn"] = pd.to_numeric(f.get("target_asn", pd.Series(np.nan, index=f.index)), errors="coerce")
+    f["prefix24"] = f.get("prefix24", pd.Series("", index=f.index)).astype(str)
     f["ip_n"] = pd.to_numeric(f.get("sensor_n", 0), errors="coerce").fillna(0)
     f["baseline_ips"] = pd.to_numeric(f.get("expected_response_n", np.nan), errors="coerce")
     f["peak_drop"] = pd.to_numeric(f.get("max_deficit", np.nan), errors="coerce")
@@ -113,7 +115,7 @@ def _h1_h2_h3_h4(features: pd.DataFrame) -> dict[str, pd.DataFrame]:
         out["peak_drop_ci_lo"] = out.peak_drop - 1.96 * se
         out["peak_drop_ci_hi"] = out.peak_drop + 1.96 * se
         return out.drop(columns=["count", "std"])
-    base = ["event_id", "admin1", "ip_n", "baseline_ips", "peak_drop", "outage_hours", "recovery_time_h"]
+    base = ["event_id", "admin1", "target_asn", "prefix24", "ip_n", "baseline_ips", "peak_drop", "outage_hours", "recovery_time_h"]
     h1 = []
     for method, typ, split in (("ACTIVITY", "activity", None), ("S_REACH", "sensitivity", None)):
         z = f[f.get("sensor_method", "").eq(method)].copy()
@@ -296,8 +298,28 @@ def run(cfg) -> dict:
             cal = c.assign(date=c.measure_time.dt.date, month=c.measure_time.dt.strftime("%Y-%m"))
             cal = cal.groupby(["month", "date"], as_index=False).agg(ips_outage_hours=("ips_outage", "sum"), fbs_outage_hours=("fbs_outage", "sum"))
             cal["ips_outage_hours"] *= 2; cal["fbs_outage_hours"] *= 2
-            _write(cal, fd / "fig03_power_internet_calendar.csv")
-            _write(c, fd / "fig08_attack_overall_signal.csv")
+            # Join scheduled calibration exposure to the canonical network
+            # calendar when event windows are available.  Missing schedules
+            # remain NA rather than being interpreted as zero exposure.
+            cal_net = c.assign(date=c.measure_time.dt.date, month=c.measure_time.dt.strftime("%Y-%m"))
+            cal_net = cal_net.groupby(["month", "date", "admin1"], as_index=False).agg(
+                ips_outage_hours=("ips_outage", "sum"), fbs_outage_hours=("fbs_outage", "sum"))
+            cal_net["ips_outage_hours"] *= 2; cal_net["fbs_outage_hours"] *= 2
+            planned = _read(rt / "calibration_events.csv")
+            if not planned.empty and {"geo_name", "start_utc", "end_utc"}.issubset(planned.columns):
+                rows = []
+                for _, e in planned.iterrows():
+                    s, en = pd.to_datetime(e.start_utc, utc=True, errors="coerce"), pd.to_datetime(e.end_utc, utc=True, errors="coerce")
+                    if pd.isna(s) or pd.isna(en): continue
+                    for day in pd.date_range(s.normalize(), en.normalize(), freq="D", tz="UTC"):
+                        lo, hi = max(s, day), min(en, day + pd.Timedelta(days=1))
+                        rows.append({"month": day.strftime("%Y-%m"), "date": day.date(), "admin1": str(e.geo_name), "planned_power_hours": max(0.0, (hi-lo).total_seconds()/3600.0)})
+                if rows:
+                    planned = pd.DataFrame(rows).groupby(["month", "date", "admin1"], as_index=False).planned_power_hours.sum()
+                    cal_net = cal_net.merge(planned, on=["month", "date", "admin1"], how="outer")
+            _write(cal_net, fd / "fig03_power_internet_calendar.csv")
+            fingerprint = _read(rt / "f6_fingerprint.csv")
+            _write(fingerprint if not fingerprint.empty else c, fd / "fig08_attack_overall_signal.csv")
         else:
             _write(pd.DataFrame(columns=["month", "ips_outage_hours", "fbs_outage_hours"]), fd / "fig04_monthly_outage_hours.csv")
             _write(pd.DataFrame(columns=["month", "date", "ips_outage_hours", "fbs_outage_hours"]), fd / "fig03_power_internet_calendar.csv")
@@ -314,13 +336,25 @@ def run(cfg) -> dict:
             _write(pd.DataFrame(columns=["target_admin1", "total_mapped_ip", "activity_estimable_ip", "sensitivity_ip", "sensitivity_support3_ip"]), fd / "fig01_oblast_coverage.csv")
         event_curve = _read(rt / "f4_event_study.csv")
         _write(event_curve if not event_curve.empty else pd.DataFrame(columns=["rel_h", "effect"]), fd / "fig09_q1_q5_event_curves.csv")
+        sens_curve = _read(rt / "exp_b_sensitivity_curves.csv")
+        if not sens_curve.empty:
+            _write(sens_curve, fd / "fig09_q1_q5_event_curves.csv")
         _write(_read(rt / "attack_continuous_sensitivity_association.csv"), fd / "fig13_h3_continuous_association.csv")
         _write(_read(rt / "f5_state_time.csv"), fd / "fig16_as_event_timeline.csv")
         cycle_quality = _read(rt / "cycle_quality.csv")
         _write(cycle_quality if not cycle_quality.empty else pd.DataFrame(columns=["measure_time", "complete", "available_ip_n"]), fd / "fig00a_cycle_quality.csv")
         _write(cycle_quality if not cycle_quality.empty else pd.DataFrame(columns=["measure_time", "available_ip_n"]), fd / "fig00b_cycle_availability.csv")
         _write(pd.DataFrame(columns=["target_asn", "admin1", "high_sensitivity_share", "attack_peak_drop"]), fd / "fig15_network_structure.csv")
-        _write(pd.DataFrame(columns=["measure_time", "target_asn", "sensitivity_quintile", "rtt_change"]), fd / "fig17_rtt_heatmap.csv")
+        if not features.empty and {"target_asn", "sensor_method", "sensitivity_stratum", "peak_drop"}.issubset(features.columns):
+            ff = features.copy(); ff["target_asn"] = pd.to_numeric(ff.target_asn, errors="coerce")
+            ff["high_sensitivity"] = ff.sensitivity_stratum.astype(str).isin(["Q4", "Q5"])
+            structure = ff.groupby(["target_asn", "admin1"], dropna=False).agg(high_sensitivity_share=("high_sensitivity", "mean"), attack_peak_drop=("peak_drop", "mean"), sensor_n=("sensor_n", "sum") if "sensor_n" in ff else ("high_sensitivity", "size")).reset_index()
+            _write(structure, fd / "fig15_network_structure.csv")
+        if not assoc.empty and {"admin1", "sensitivity_metric"}.issubset(assoc.columns):
+            rtt = assoc[assoc.sensitivity_metric.astype(str).str.contains("rtt", case=False, na=False)].copy()
+            _write(rtt, fd / "fig17_rtt_heatmap.csv")
+        else:
+            _write(pd.DataFrame(columns=["measure_time", "target_asn", "sensitivity_quintile", "rtt_change"]), fd / "fig17_rtt_heatmap.csv")
         _write(pd.DataFrame(columns=["power_exposure", "internet_impact", "admin1"]), fd / "fig19_power_internet_correlation.csv")
         # Every declared paper figure gets a deterministic source CSV and a
         # metadata sidecar.  Empty sources are honest missing-evidence markers.
