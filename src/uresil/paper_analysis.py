@@ -87,6 +87,41 @@ def _feature_tables(cfg) -> tuple[pd.DataFrame, pd.DataFrame]:
     return all_f, labels
 
 
+def _attack_metric_tables(cfg) -> dict[str, pd.DataFrame]:
+    """Adapt the lightweight frozen-label attack summaries to H1--H4.
+
+    This is the preferred source after the observational Exp-B rewrite.  The
+    feature-panel route remains as a backwards-compatible fallback for old
+    runs, but no matching or prediction output is required for the paper
+    tables.
+    """
+    rt = cfg.out_dir("results_tables", ensure=False)
+    m = _read(rt / "exp_b_main_results.csv")
+    out = {}
+    if m.empty or not {"event_id", "admin1", "group_type", "sensitivity_group"}.issubset(m.columns):
+        return out
+    base = [c for c in ("event_id", "admin1", "ip_n", "peak_drop", "outage_hours", "recovery_time_h") if c in m]
+    h1 = m[m.group_type.isin(["ACTIVITY", "S_REACH"])].copy()
+    if not h1.empty:
+        h1 = h1.rename(columns={"sensitivity_group": "group_id"})
+        h1["group_type"] = h1.group_type.astype(str).str.lower().replace({"s_reach": "sensitivity", "activity": "activity"})
+        out["h1_ip_group_heterogeneity"] = h1[[*base, "group_type", "group_id"]]
+    h2 = m[m.group_type.eq("S_REACH")].copy()
+    if not h2.empty:
+        h2 = h2.rename(columns={"sensitivity_group": "sensitivity_quintile"})
+        out["h2_sensitivity_generalization"] = h2[[*base, "sensitivity_quintile"]]
+    h3 = m[m.group_type.eq("ACTIVITY_S_REACH")].copy()
+    if not h3.empty:
+        parts = h3.sensitivity_group.astype(str).str.split("|", n=1, expand=True)
+        h3["activity_decile"] = parts[0]; h3["sensitivity_quintile"] = parts[1]
+        out["h3_activity_x_sensitivity"] = h3[[*base, "activity_decile", "sensitivity_quintile"]]
+    h4 = _read(rt / "exp_b_loss_decomposition.csv")
+    if not h4.empty:
+        h4 = h4.rename(columns={"sensitivity_group": "group"})
+        out["h4_ips_loss_decomposition"] = h4
+    return out
+
+
 def _h1_h2_h3_h4(features: pd.DataFrame) -> dict[str, pd.DataFrame]:
     empty = {
         "h1_ip_group_heterogeneity": pd.DataFrame(columns=["event_id", "admin1", "group_type", "group_id", "ip_n", "baseline_ips", "min_ips_ratio", "peak_drop", "outage_hours", "recovery_time_h", "support_cycles"]),
@@ -169,6 +204,13 @@ def run(cfg) -> dict:
     with step("Build H1-H4 tables and paper source-data contract", logger):
         features, labels = _feature_tables(cfg)
         tables = _h1_h2_h3_h4(features)
+        # Prefer the direct frozen-label attack summaries when available.  A
+        # legacy feature table may still exist from an older run, but it must
+        # not mask the new observational H1--H4 estimand.
+        attack_tables = _attack_metric_tables(cfg)
+        for name, table in attack_tables.items():
+            if not table.empty:
+                tables[name] = table
         # Compact paper tables requested by the plan.  Counts are derived from
         # frozen artifacts only; absent artifacts produce zero rows, never
         # fabricated estimates.

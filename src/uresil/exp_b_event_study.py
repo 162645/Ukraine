@@ -730,7 +730,160 @@ def _event_payload(store: dict[str, list[pd.DataFrame]]) -> dict[str, pd.DataFra
     return {key: _concat_frames(store[key]) for key in EXP_B_COMPONENTS}
 
 
+def _strict_prior_ratio(frame: pd.DataFrame, value_col: str = "IPS") -> pd.DataFrame:
+    """Compute current IPS divided by the strictly-prior 7-day mean.
+
+    This is the same descriptive signal used by the canonical paper metric;
+    no matching, model fitting, or attack-informed label selection occurs.
+    """
+    z = frame.sort_values("measure_time").copy()
+    z["IPS_7d_mean"] = np.nan
+    for _, idx in z.groupby(["admin1", "group_type", "sensitivity_group"], dropna=False).groups.items():
+        g = z.loc[idx].sort_values("measure_time")
+        s = g.set_index("measure_time")[value_col].astype(float)
+        # At least three prior complete cycles prevents a one-point ratio from
+        # being reported as a seven-day baseline.  Incomplete acquisition
+        # cycles are absent before this function is called.
+        prior = s.rolling("7D", closed="left", min_periods=3).mean()
+        z.loc[g.index, "IPS_7d_mean"] = prior.to_numpy()
+    z["IPS_ratio"] = z[value_col] / z["IPS_7d_mean"].replace(0, np.nan)
+    return z
+
+
+def _recovery_time(rel_h: pd.Series, ratio: pd.Series, *, nadir_h: float,
+                   threshold: float = .90, consecutive: int = 2) -> tuple[float, int]:
+    z = pd.DataFrame({"rel_h": rel_h, "ratio": ratio}).dropna().sort_values("rel_h")
+    z = z[z.rel_h >= nadir_h]
+    if z.empty:
+        return np.nan, 1
+    ok = z.ratio.ge(threshold).to_numpy(bool)
+    for i in range(max(0, len(ok) - consecutive + 1)):
+        if ok[i:i + consecutive].all():
+            return float(z.iloc[i].rel_h - nadir_h), 0
+    return np.nan, 1
+
+
+def _observational_group_analysis(cfg: Config) -> dict:
+    """Run the confirmatory attack analysis as frozen-label characterization.
+
+    The main estimand is deliberately direct: for each held-out attack and
+    affected oblast, count responsive IPs in ALL/D/Q/D×Q groups, divide by the
+    group's strictly-prior seven-day mean, and summarize the resulting curve.
+    Historical matching, Ridge/GBDT prediction, SMD gates, and model selection
+    are not part of H1--H4 and are therefore not executed here.
+    """
+    logger = get_logger(cfg.out_dir("logs")); rt = cfg.out_dir("results_tables")
+    ev = Events(cfg); cycle_h = float(cfg.study["expected_cycle_interval_hours"])
+    curves, metrics, states, assoc, decomp = [], [], [], [], []
+    specs = (("ALL", "ALL"), ("ACTIVITY", "ACTIVITY"),
+             ("S_REACH", "S_REACH"), ("ACTIVITY_S_REACH", "ACTIVITY_S_REACH"))
+    for _, event in ev.attacks.iterrows():
+        event_id = str(event.event_id); anchor = Events.anchor_time(event)
+        lo, hi = ev.event_window(event)
+        treated = Events.treated_admin1(event)
+        for method, group_type in specs:
+            panel = load_event_panel(cfg, event, method=method, anchor=anchor)
+            if panel.empty:
+                continue
+            x = panel[~panel.target_admin1.astype(str).isin(INVALID_ADMIN1)].copy()
+            if treated and treated != ["ALL"] and str(event.scope_type).lower() != "national":
+                x = x[x.target_admin1.astype(str).isin(set(treated))]
+            if x.empty:
+                continue
+            if "responders" not in x:
+                nr = pd.to_numeric(x["normalized_reach"], errors="coerce") if "normalized_reach" in x else pd.Series(0.0, index=x.index)
+                er = pd.to_numeric(x["expected_response_n"], errors="coerce") if "expected_response_n" in x else pd.Series(0.0, index=x.index)
+                x["responders"] = nr.fillna(0) * er.fillna(0)
+            if method == "ALL":
+                x["sensitivity_group"] = "ALL"
+            else:
+                sg = x["sensitivity_stratum"] if "sensitivity_stratum" in x else pd.Series("NA", index=x.index)
+                x["sensitivity_group"] = sg.astype(str)
+            x["group_type"] = group_type
+            g = (x.groupby(["measure_time", "target_admin1", "group_type", "sensitivity_group"], dropna=False)
+                   .agg(IPS=("responders", "sum"), eligible_ip_n=("sensor_n", "sum"),
+                        expected_response_n=("expected_response_n", "sum"))
+                   .reset_index().rename(columns={"target_admin1": "admin1"}))
+            g = _strict_prior_ratio(g)
+            g["event_id"] = event_id; g["event_family"] = str(event.event_family)
+            g["rel_h"] = (pd.to_datetime(g.measure_time, utc=True) - anchor).dt.total_seconds() / 3600.0
+            g = g[(g.measure_time >= lo) & (g.measure_time <= hi)].copy()
+            if g.empty:
+                continue
+            g["ips_outage"] = g.IPS_ratio.lt(float(cfg.raw.get("macro_signals", {}).get("ips_outage_ratio", .90)))
+            curves.append(g)
+            for (admin1, group), q in g[g.rel_h.ge(0)].groupby(["admin1", "sensitivity_group"], dropna=False):
+                q = q.dropna(subset=["IPS_ratio"]).sort_values("rel_h")
+                if q.empty:
+                    continue
+                nadir = q.loc[q.IPS_ratio.idxmin()]
+                t90, censored = _recovery_time(q.rel_h, q.IPS_ratio, nadir_h=float(nadir.rel_h))
+                loss = (q.IPS_7d_mean * (1 - q.IPS_ratio).clip(lower=0)).sum()
+                metrics.append({"event_id": event_id, "admin1": admin1, "group_type": group_type,
+                                "sensitivity_group": str(group), "ip_n": float(q.eligible_ip_n.median()),
+                                "peak_drop": float(max(0, 1 - q.IPS_ratio.min())),
+                                "outage_hours": float(q.ips_outage.sum() * cycle_h),
+                                "recovery_time_h": t90, "recovery_censored": censored,
+                                "ips_loss": float(loss), "support_cycles": int(len(q))})
+            if method == "S_REACH":
+                for admin1, q in g[g.rel_h.ge(0)].groupby("admin1"):
+                    qq = q.dropna(subset=["IPS_ratio"]).groupby("sensitivity_group").peak_drop.mean()
+                    order = {f"Q{i}": i for i in range(1, 6)}
+                    v = qq.rename(index=order).dropna()
+                    if len(v) >= 3:
+                        assoc.append({"event_id": event_id, "admin1": admin1,
+                                      "sensitivity_metric": "S_REACH",
+                                      "attack_outcome": "peak_drop_group_gradient",
+                                      "n_groups": int(len(v)), "slope_per_quintile": float(np.polyfit(v.index, v.values, 1)[0]),
+                                      "spearman_rho": float(v.index.to_series().corr(v, method="spearman"))})
+        # State-level ALL curve used by the macro/event timeline figures.
+    curve_df = pd.concat(curves, ignore_index=True) if curves else pd.DataFrame()
+    metric_df = pd.DataFrame(metrics)
+    if not metric_df.empty:
+        for keys, z in metric_df.groupby(["event_id", "admin1", "group_type"], dropna=False):
+            den = z.ips_loss.sum()
+            z = z.copy(); z["population_share"] = z.ip_n / z.ip_n.sum() if z.ip_n.sum() else np.nan
+            z["loss_contribution"] = z.ips_loss / den if den > 0 else np.nan
+            z["over_contribution_ratio"] = z.loss_contribution / z.population_share.replace(0, np.nan)
+            decomp.append(z)
+        metric_df = metric_df.copy()
+    decomp_df = pd.concat(decomp, ignore_index=True) if decomp else pd.DataFrame()
+    all_curve = curve_df[curve_df.group_type.eq("ALL")] if not curve_df.empty else pd.DataFrame()
+    f4 = (all_curve.rename(columns={"IPS_ratio": "reach", "group_type": "sensor_method"})
+          if not all_curve.empty else pd.DataFrame())
+    f5 = (all_curve.rename(columns={"IPS_ratio": "reach_dev"})
+          if not all_curve.empty else pd.DataFrame())
+    qcurves = curve_df[curve_df.group_type.isin(["ACTIVITY", "S_REACH", "ACTIVITY_S_REACH"])] if not curve_df.empty else pd.DataFrame()
+    outputs = {
+        "f4_event_study.csv": f4, "f5_state_time.csv": f5,
+        "f6_fingerprint.csv": f4.groupby("rel_h", as_index=False).reach.mean() if not f4.empty else pd.DataFrame(),
+        "exp_b_main_results.csv": metric_df, "exp_b_estimand_results.csv": metric_df,
+        "exp_b_sensitivity_curves.csv": qcurves, "exp_b_state_sensitivity_validation.csv": metric_df[metric_df.group_type.eq("S_REACH")] if not metric_df.empty else pd.DataFrame(),
+        "attack_state_sensitivity_validation.csv": metric_df[metric_df.group_type.eq("S_REACH")] if not metric_df.empty else pd.DataFrame(),
+        "attack_continuous_sensitivity_association.csv": pd.DataFrame(assoc),
+        "attack_recovery_validation.csv": metric_df[[c for c in metric_df.columns if c in {"event_id", "admin1", "group_type", "sensitivity_group", "recovery_time_h", "recovery_censored"}]] if not metric_df.empty else pd.DataFrame(),
+        "exp_b_loss_decomposition.csv": decomp_df,
+    }
+    # Legacy/robustness files are explicit empty markers, not silently run
+    # matching or prediction analyses.
+    for name in ("exp_b_matches.csv", "exp_b_anchor_sensitivity.csv", "exp_b_placebo.csv",
+                 "exp_b_method_sensitivity.csv", "exp_b_target_universe_sensitivity.csv",
+                 "exp_b_matching_balance.csv"):
+        outputs[name] = pd.DataFrame(columns=["status", "note"])
+    for name, frame in outputs.items():
+        frame.to_csv(rt / name, index=False, encoding="utf-8-sig")
+    return {"status": "ok", "outputs": [str(rt / name) for name in outputs],
+            "analysis": "frozen_label_observational", "event_n": int(metric_df.event_id.nunique()) if not metric_df.empty else 0,
+            "metric_rows": int(len(metric_df)), "model_training": False}
+
+
 def run(cfg: Config) -> dict:
+    # The confirmatory paper pipeline is descriptive/observational.  The old
+    # matching + placebo + prediction implementation remains below for
+    # reproducibility only and can be explicitly requested with
+    # ``exp_b.legacy_full: true``.
+    if not bool(cfg.raw.get("exp_b", {}).get("legacy_full", False)):
+        return _observational_group_analysis(cfg)
     logger = get_logger(cfg.out_dir("logs")); rt = cfg.out_dir("results_tables")
     ev = Events(cfg); seed = int(cfg.runtime["random_seed"]); primary_method = choose_primary_method(cfg)
     attack_rows = list(ev.attacks.iterrows())
