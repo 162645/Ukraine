@@ -376,8 +376,24 @@ def run(cfg) -> dict:
                     planned = pd.DataFrame(rows).groupby(["month", "date", "admin1"], as_index=False).planned_power_hours.sum()
                     cal_net = cal_net.merge(planned, on=["month", "date", "admin1"], how="outer")
             _write(cal_net, fd / "fig03_power_internet_calendar.csv")
-            fingerprint = _read(rt / "f6_fingerprint.csv")
-            _write(fingerprint if not fingerprint.empty else c, fd / "fig08_attack_overall_signal.csv")
+            # Figure 8 uses the held-out attack curve, not the generic
+            # canonical-signal calendar.  Preserve event/state rows in the
+            # source table and apply the registered event-equal contract:
+            # state means within event, then equal event weights.
+            attack_curve = _read(rt / "f4_event_study.csv")
+            if not attack_curve.empty and {"rel_h", "reach"}.issubset(attack_curve.columns):
+                z = attack_curve.copy().rename(columns={"reach": "attack_reach"})
+                if {"event_id", "admin1"}.issubset(z.columns):
+                    z = (z.groupby(["event_id", "admin1", "rel_h"], dropna=False)
+                           .agg(attack_reach=("attack_reach", "mean"))
+                           .reset_index()
+                           .groupby(["event_id", "rel_h"], dropna=False)
+                           .agg(attack_reach=("attack_reach", "mean"), state_n=("admin1", "nunique"))
+                           .reset_index())
+                _write(z, fd / "fig08_attack_overall_signal.csv")
+            else:
+                _write(pd.DataFrame(columns=["event_id", "rel_h", "attack_reach", "state_n"]),
+                       fd / "fig08_attack_overall_signal.csv")
         else:
             _write(pd.DataFrame(columns=["month", "ips_outage_hours", "fbs_outage_hours"]), fd / "fig04_monthly_outage_hours.csv")
             _write(pd.DataFrame(columns=["month", "date", "ips_outage_hours", "fbs_outage_hours"]), fd / "fig03_power_internet_calendar.csv")

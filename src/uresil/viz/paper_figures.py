@@ -79,6 +79,32 @@ def render(cfg, lang="en"):
             outputs += _save(fig, cfg, "fig07_activity_vs_sensitivity", lsrc, "Activity versus continuous planned-outage-associated sensitivity; density is log-count.")
     else: warnings.append("endpoint distribution sources unavailable")
 
+    # Figure 3: planned power exposure and observed Internet anomalies share
+    # the same Oblast×day source table.  Render separate lanes so planned,
+    # IPS, and FBS quantities remain distinguishable instead of collapsing to
+    # one generic series.
+    d, src = _source(cfg, "fig03_power_internet_calendar")
+    metrics = [("planned_power_hours", "Planned power exposure (h)", "YlOrRd"),
+               ("ips_outage_hours", "Observed IPS anomaly (h)", "Reds"),
+               ("fbs_outage_hours", "Observed FBS anomaly (h)", "Greens")]
+    if not d.empty and {"date", "admin1"}.issubset(d.columns) and any(c in d for c, _, _ in metrics):
+        d = d.copy(); d["date"] = pd.to_datetime(d.date, errors="coerce")
+        d = d.dropna(subset=["date"]); d["date_label"] = d.date.dt.strftime("%m-%d")
+        dates = sorted(d.date_label.unique()); states = sorted(d.admin1.astype(str).unique())
+        fig, ax = plt.subplots(1, 3, figsize=(cfg.figures["double_column_width_in"], 4.0), sharey=True)
+        for a, (col, title, cmap) in zip(ax, metrics):
+            if col not in d:
+                a.text(.5, .5, "Unavailable", ha="center", va="center", transform=a.transAxes); a.set_axis_off(); continue
+            p = d.pivot_table(index=d.admin1.astype(str), columns="date_label", values=col, aggfunc="sum").reindex(index=states, columns=dates)
+            im = a.imshow(p.to_numpy(float), aspect="auto", interpolation="none", cmap=cmap, vmin=0)
+            a.set_title(title, fontsize=8); a.set_xticks(range(len(dates)), dates, rotation=60, ha="right")
+            a.set_xlabel("UTC date"); fig.colorbar(im, ax=a, fraction=.046, pad=.04)
+        ax[0].set_yticks(range(len(states)), states); ax[0].set_ylabel("Oblast")
+        outputs += _save(fig, cfg, "fig03_power_internet_calendar", src,
+                         "Oblast-by-day lanes for planned power exposure and observed IPS/FBS Internet anomalies; missing values are not imputed.")
+    else:
+        warnings.append("fig03 source data unavailable")
+
     # H1/H2/H3/H4 summary plots share a common source contract.
     d, src = _source(cfg, "fig12_h3_activity_x_sensitivity")
     if not d.empty and {"activity_decile", "sensitivity_quintile", "peak_drop"}.issubset(d.columns):
@@ -155,8 +181,14 @@ def render(cfg, lang="en"):
     d, src = _source(cfg, "fig08_attack_overall_signal")
     if not d.empty and {"rel_h", "attack_reach"}.issubset(d.columns):
         fig, ax = plt.subplots(figsize=(cfg.figures["double_column_width_in"], 3.0))
-        x = pd.to_numeric(d.rel_h, errors="coerce"); ax.plot(x, pd.to_numeric(d.attack_reach, errors="coerce"), color=PALETTE[0], label="Attack")
-        if "planned_reach" in d: ax.plot(x, pd.to_numeric(d.planned_reach, errors="coerce"), color=PALETTE[1], label="Planned")
+        z = d.copy()
+        if "event_id" in z:
+            # The source retains event rows for auditability; the displayed
+            # curve gives each registered event equal weight at every rel_h.
+            z = (z.groupby(["event_id", "rel_h"], dropna=False).attack_reach.mean().reset_index()
+                   .groupby("rel_h", dropna=False).attack_reach.mean().reset_index())
+        x = pd.to_numeric(z.rel_h, errors="coerce"); ax.plot(x, pd.to_numeric(z.attack_reach, errors="coerce"), color=PALETTE[0], label="Attack")
+        if "planned_reach" in z: ax.plot(x, pd.to_numeric(z.planned_reach, errors="coerce"), color=PALETTE[1], label="Planned")
         ax.axvline(0, color="0.35", ls="--", lw=.8); ax.axhline(1, color="0.35", ls=":", lw=.8); ax.set_xlabel("Hours relative to attack"); ax.set_ylabel("Reachability ratio"); ax.legend(frameon=False)
         outputs += _save(fig, cfg, "fig08_attack_overall_signal", src, "Event-equal attack and planned reachability curves with the registered anchor at t=0.")
     d, src = _source(cfg, "fig09_q1_q5_event_curves")
