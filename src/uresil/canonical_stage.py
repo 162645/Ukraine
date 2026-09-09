@@ -95,21 +95,20 @@ def _month_query(cfg: Config, start: pd.Timestamp, end: pd.Timestamp,
     times = ",".join(f"toDateTime('{t.strftime('%Y-%m-%d %H:%M:%S')}', 'UTC')" for t in complete_times)
     return f"""
 WITH latest AS (
-  SELECT ip, argMax(geo_country, updated_at) AS country, argMax(geo_region, updated_at) AS region
+  SELECT ip, argMax(prefix24, updated_at) AS map_prefix24, argMax(geo_country, updated_at) AS country, argMax(geo_region, updated_at) AS region
   FROM {mapping} WHERE updated_at <= toDateTime('{cutoff}', 'UTC') GROUP BY ip
 ), prefix_counts AS (
-  SELECT concat(arrayElement(splitByChar('.', ip), 1), '.', arrayElement(splitByChar('.', ip), 2), '.', arrayElement(splitByChar('.', ip), 3)) AS prefix_key,
-         country, region, count() AS n
-  FROM latest WHERE country IN ({aliases}) GROUP BY prefix_key, country, region
+  SELECT map_prefix24 AS prefix24, country, region, count() AS n
+  FROM latest WHERE country IN ({aliases}) AND map_prefix24 != '' GROUP BY prefix24, country, region
 ), prefix_modal AS (
-  SELECT prefix_key, country, region FROM prefix_counts
-  ORDER BY prefix_key, n DESC, country, region LIMIT 1 BY prefix_key
+  SELECT prefix24, country, region FROM prefix_counts
+  ORDER BY prefix24, n DESC, country, region LIMIT 1 BY prefix24
 ), base AS (
   SELECT toStartOfInterval(p.measure_time, INTERVAL 2 HOUR) AS measure_time,
          p.dst_ip, p.prefix24, l.country AS ip_country, l.region AS ip_region,
          pm.country AS prefix_country, pm.region AS prefix_region
   FROM {ping} p INNER JOIN latest l ON p.dst_ip = l.ip
-  LEFT JOIN prefix_modal pm ON pm.prefix_key = concat(arrayElement(splitByChar('.', p.prefix24), 1), '.', arrayElement(splitByChar('.', p.prefix24), 2), '.', arrayElement(splitByChar('.', p.prefix24), 3))
+  LEFT JOIN prefix_modal pm ON pm.prefix24 = p.prefix24
   WHERE p.data_center = {_sql_quote(dc)} AND p.measure_time >= toDateTime64('{lo}', 6, 'UTC')
     AND p.measure_time < toDateTime64('{hi}', 6, 'UTC') AND p.dst_ip != '' AND p.prefix24 != ''
     AND l.country IN ({aliases}) AND toStartOfInterval(p.measure_time, INTERVAL 2 HOUR) IN ({times})
