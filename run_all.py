@@ -53,7 +53,10 @@ def execute(stage: str, cfg):
     if stage == "stage00_quality":
         from uresil import stage00_quality as m
         return m.run(cfg)
-    if stage in FORMAL_STAGE_ORDER[1:]:
+    if stage == "stage01_canonical":
+        from uresil import canonical_stage as m
+        return m.run(cfg)
+    if stage in FORMAL_STAGE_ORDER[2:]:
         raise RuntimeError(
             f"{stage} is not implemented as a formal frozen stage yet; refusing to fall back to legacy outputs"
         )

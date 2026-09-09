@@ -68,20 +68,37 @@ def compute_canonical_fbs(responses: pd.DataFrame, block_admin1: pd.DataFrame,
 
 def add_rolling_ratios(signals: pd.DataFrame, days: int = 7,
                        cycle_hours: int = 2, ips_threshold: float = .90,
-                       fbs_threshold: float = .95) -> pd.DataFrame:
-    """Add strictly retrospective moving means and IPS/FBS outage flags."""
+                       fbs_threshold: float = .95,
+                       baseline_min_fraction: float = 1.0) -> pd.DataFrame:
+    """Add strictly retrospective moving means and IPS/FBS outage flags.
+
+    The rolling window is time-based and closed on the left, so the current
+    cycle can never enter its own baseline.  ``baseline_min_fraction`` is the
+    minimum fraction of expected complete historical cycles required for an
+    estimable baseline; missing cycles remain NA rather than becoming zero.
+    """
     d = signals.copy()
     d["measure_time"] = pd.to_datetime(d["measure_time"], utc=True)
-    n = int(days * 24 / cycle_hours)
+    expected_n = int(days * 24 / cycle_hours)
+    min_n = int(np.ceil(expected_n * float(baseline_min_fraction)))
     d = d.sort_values(["admin1", "measure_time"])
     for sig, threshold in (("IPS", .90), ("FBS", .95)):
         if sig not in d:
             d[sig] = np.nan
         mean_col = f"{sig}_7d_mean"
         ratio_col = f"{sig}_ratio"
-        d[mean_col] = d.groupby("admin1")[sig].transform(
-            lambda x: x.shift(1).rolling(n, min_periods=n).mean())
+        means = pd.Series(np.nan, index=d.index, dtype=float)
+        counts = pd.Series(0, index=d.index, dtype="int64")
+        for _, idx in d.groupby("admin1", sort=False).groups.items():
+            g = d.loc[idx].sort_values("measure_time")
+            s = g.set_index("measure_time")[sig]
+            roll = s.rolling(f"{days}D", closed="left", min_periods=min_n)
+            means.loc[g.index] = roll.mean().to_numpy()
+            counts.loc[g.index] = s.rolling(f"{days}D", closed="left").count().fillna(0).astype("int64").to_numpy()
+        d[mean_col] = means
+        d[f"{sig.lower()}_baseline_cycle_n"] = counts
         d[ratio_col] = d[sig] / d[mean_col].replace(0, np.nan)
+        d.loc[d[f"{sig.lower()}_baseline_cycle_n"] < min_n, ratio_col] = np.nan
     d["ips_outage"] = d["IPS_ratio"].lt(float(ips_threshold)) & d["IPS_7d_mean"].notna()
     d["fbs_outage"] = (d["FBS_ratio"].lt(float(fbs_threshold)) & d["IPS_ratio"].lt(float(fbs_threshold))
                        & d["FBS_7d_mean"].notna() & d["IPS_7d_mean"].notna())
