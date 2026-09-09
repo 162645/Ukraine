@@ -226,6 +226,14 @@ def run(cfg: Config) -> dict:
     cycle["responsive_ip_n"] = pd.to_numeric(cycle.get("ping_unique_ips", 0), errors="coerce").fillna(0).astype("int64")
     cycle["import_status"] = cycle.get("import_status", "unknown").fillna("unknown").astype(str)
     cycle["failure_reason"] = cycle.get("exclusion_reason", "").fillna("").astype(str)
+    # When the configured study envelope is wider than the actually observed
+    # Ping span, cycles outside that support are not acquisition failures.  The
+    # formal quality denominator follows support_inference=observed_ping_span;
+    # keep the excluded count for transparent reporting.
+    outside_support = cycle["failure_reason"].str.contains("outside_observed_support", na=False)
+    support_excluded_n = int(outside_support.sum())
+    if str(cfg.study.get("support_inference", "")).strip() == "observed_ping_span":
+        cycle = cycle.loc[~outside_support].copy()
     required = ["cycle_id", "measure_time", "is_complete", "responsive_ip_n",
                 "import_file_n", "import_status", "failure_reason"]
     cycle["import_file_n"] = (cycle["import_status"].ne("unknown")).astype("int8")
@@ -268,6 +276,7 @@ def run(cfg: Config) -> dict:
         f"Run ID: `{cfg.run_id}`", "",
         "## Key statistics", "",
         f"- Total nominal cycles: **{len(cycle_out):,}**",
+        f"- Cycles outside observed Ping support excluded from the denominator: **{support_excluded_n:,}**",
         f"- Complete cycles: **{int(cycle_out.is_complete.sum()):,}**",
         f"- Incomplete cycles: **{int((~cycle_out.is_complete.astype(bool)).sum()):,}**",
         f"- Completion rate: **{completion_rate:.3%}**",
