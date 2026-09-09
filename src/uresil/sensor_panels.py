@@ -114,7 +114,11 @@ def _read_sensor_part(cfg: Config, path: str, columns: list[str], membership: pd
     if membership is None:
         membership = _calibrated_membership(cfg)
     d = d.drop(columns=["in_B2"], errors="ignore")
-    d = d.merge(membership, on="dst_ip", how="left", validate="many_to_one")
+    # Parts already carry the Activity score and geography.  Add only frozen
+    # label columns that are absent; otherwise pandas creates _x/_y columns
+    # (notably activity_score_raw) and downstream grouping silently breaks.
+    add_cols = [c for c in membership.columns if c == "dst_ip" or c not in d.columns]
+    d = d.merge(membership[add_cols], on="dst_ip", how="left", validate="many_to_one")
     # Sensitivity remains continuous; no attack-informed or thresholded B2 set
     # is allowed to become the primary analysis sample.
     # The formal endpoint population is the common, activity-estimable target
@@ -150,7 +154,7 @@ def build_denominators(cfg: Config, parts: list[str]) -> pd.DataFrame:
     rows = []
     cols = ["dst_ip", "prefix24", "target_asn", "target_country", "target_admin1",
             "network_stratum", "pN", "activity_score_raw", "activity_score_smoothed",
-            "activity_estimable", "activity_score_raw", "activity_decile", "in_B1", "in_B2",
+            "activity_estimable", "activity_decile", "in_B1", "in_B2",
             "regional_eligible"]
     for p in pbar(parts, desc="sensor denominators", unit="part"):
         d = _read_sensor_part(cfg, p, cols)
@@ -208,7 +212,7 @@ def load_sensor_labels(cfg: Config, parts: list[str]) -> pd.DataFrame:
     frames = []
     cols = ["dst_ip", "prefix24", "target_asn", "target_country", "target_admin1",
             "network_stratum", "activity_score_raw", "activity_score_smoothed",
-            "activity_estimable", "activity_score_raw", "activity_decile", "in_B1", "in_B2",
+            "activity_estimable", "activity_decile", "in_B1", "in_B2",
             "regional_eligible"]
     for p in pbar(parts, desc="load frozen sensor labels", unit="part"):
         d = _read_sensor_part(cfg, p, cols, membership=membership)
@@ -233,14 +237,6 @@ def _event_responses(cfg: Config, ch: CHClient, event: pd.Series, parts: list[st
     lo = lo - pd.Timedelta(days=_group_baseline_days(cfg))
     h = int(cfg.study["expected_cycle_interval_hours"])
     num = []
-    cols = ["dst_ip", "prefix24", "target_asn", "target_country", "target_admin1",
-            "network_stratum", "activity_score_raw", "activity_score_smoothed",
-            "activity_estimable", "activity_score_raw", "activity_decile", "in_B1", "in_B2",
-            "regional_eligible"]
-    # Consolidate frozen membership before querying.  Querying each parquet
-    # part separately repeats the same ClickHouse scan and made the compact
-    # observational ExpB unnecessarily slow.
-    membership = _calibrated_membership(cfg)
     if sensors is None:
         sensors = load_sensor_labels(cfg, parts)
     if sensors.empty:
