@@ -290,6 +290,16 @@ class Config:
         missing = required_events.difference(events.columns) | required_segments.difference(segments.columns)
         if missing:
             raise ValueError(f"final calibration workbook missing columns: {sorted(missing)}")
+        # The episode-fix workbook keeps the legacy IDs for auditability and
+        # adds immutable v2 IDs used by Stage 3/4.  Older workbooks remain
+        # readable for diagnostics, but formal calibration must not silently
+        # fall back once the v2 freeze is selected.
+        plan_version = str(self.raw.get("freeze", {}).get("plan_version", ""))
+        if "episode_fix" in plan_version:
+            v2_required = {"episode_id_v2_main", "episode_id_v2_augmented"}
+            missing_v2 = v2_required.difference(events.columns) | v2_required.difference(segments.columns)
+            if missing_v2:
+                raise ValueError(f"episode-fix workbook missing columns: {sorted(missing_v2)}")
         for d in (events, segments):
             for c in ("use_main", "use_augmented", "measurement_start_ok"):
                 if c in d:

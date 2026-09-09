@@ -1,5 +1,5 @@
 freeze:
-  plan_version: analysis_plan_v5_state_continuous_sensitivity
+  plan_version: analysis_plan_v2_5_episode_fix
   # Main runs stop after the observational H1--H4 chain.  Set true only for
   # optional legacy external-validation/recovery supplements.
   run_supplemental: false
@@ -7,7 +7,7 @@ freeze:
   measurement_view: AWS_Frankfurt_to_Ukraine
   event_registry: event_registry_v2.csv
   # The Excel workbook is the sole frozen source for planned-outage calibration.
-  calibration_workbook: ukraine_outage_calibration_ready_v1.xlsx
+  calibration_workbook: ukraine_outage_calibration_ready_v2_episode_fix.xlsx
   # Retained only for legacy descriptive modules; it never selects v5 calibration events.
   legacy_schedule_registry: planned_outage_schedule_v4_0.csv
   oblast_execution_registry: oblast_execution_registry_v1.csv

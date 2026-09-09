@@ -196,6 +196,11 @@ def build_final_calibration_events(cfg: Config, valid_admin1: set[str] | None = 
         if book.empty:
             continue
         row = book.iloc[0]
+        # Keep the legacy workbook IDs in the event record, but use the
+        # episode-fix IDs for all formal calibration aggregation.  This makes
+        # the estimand change explicit and preserves an auditable mapping.
+        main_episode = row.get("episode_id_v2_main", row.get("episode_id_main", ""))
+        augmented_episode = row.get("episode_id_v2_augmented", row.get("episode_id_augmented", ""))
         groups.append({
             "event_id": str(event_id), "geo_level": str(row.get("geo_level", "oblast")),
             "geo_name": str(row.state_en), "event_date": str(row.event_date),
@@ -205,8 +210,12 @@ def build_final_calibration_events(cfg: Config, valid_admin1: set[str] | None = 
             "source_record_n": int(outage.segment_id.nunique()),
             "evidence_tier": str(row.evidence_tier), "quality": str(row.get("quality", "")),
             "use_main": int(row.use_main), "use_augmented": int(row.use_augmented),
-            "episode_id_main": str(row.episode_id_main or ""),
-            "episode_id_augmented": str(row.episode_id_augmented or ""),
+            "legacy_episode_id_main": str(row.episode_id_main or ""),
+            "legacy_episode_id_augmented": str(row.episode_id_augmented or ""),
+            "episode_id_v2_main": str(main_episode or ""),
+            "episode_id_v2_augmented": str(augmented_episode or ""),
+            "episode_id_main": str(main_episode or ""),
+            "episode_id_augmented": str(augmented_episode or ""),
             "measurement_start_utc": cutoff,
         })
     events = pd.DataFrame(groups)
@@ -339,7 +348,12 @@ def _prefix_batches(values: list[str], size: int):
 
 def b1_score_parts(data_derived: Path) -> list[str]:
     """Locate baseline-score parts; isolated to keep the real-run entry testable."""
-    return sorted(glob.glob(str(data_derived / "ip_sensor_scores_parts" / "part_*.parquet")))
+    legacy = sorted(glob.glob(str(data_derived / "ip_sensor_scores_parts" / "part_*.parquet")))
+    if legacy:
+        return legacy
+    # Formal Stage 2 stores Activity sufficient statistics under this name;
+    # the retired legacy B1 directory is not required for calibration.
+    return sorted(glob.glob(str(data_derived / "stage02_activity_parts" / "part_*.parquet")))
 
 
 def _query_event(ch: CHClient, cfg: Config, targets: pd.DataFrame,
@@ -467,15 +481,37 @@ def run(cfg: Config) -> dict:
     if not parts: raise RuntimeError("endpoint score parts are required before calibration")
     # Canonical sensitivity population: every regional target with sufficient
     # clean-cycle support.  Do not apply the legacy response-rate B1 gate.
-    support = pd.concat([pd.read_parquet(p, columns=["dst_ip", "prefix24", "activity_estimable",
-                                                       "activity_score_raw", "activity_score_smoothed",
-                                                       "n_normal", "x_normal"])
-                         for p in parts], ignore_index=True)
+    support_frames = []
+    for p in parts:
+        frame = pd.read_parquet(p)
+        # Stage 2 intentionally stores sufficient statistics rather than a
+        # second copy of the derived Activity score. Reconstructing it here
+        # does not filter endpoints or introduce a stability gate.
+        if "activity_score_raw" not in frame:
+            n = pd.to_numeric(frame.get("n_normal"), errors="coerce")
+            x = pd.to_numeric(frame.get("x_normal"), errors="coerce")
+            frame["activity_score_raw"] = x.div(n.where(n.gt(0)))
+            frame["activity_score_smoothed"] = frame["activity_score_raw"]
+            frame["activity_estimable"] = n.gt(0)
+        support_frames.append(frame[[c for c in ("dst_ip", "prefix24", "activity_estimable",
+                                                  "activity_score_raw", "activity_score_smoothed",
+                                                  "n_normal", "x_normal") if c in frame]])
+    support = pd.concat(support_frames, ignore_index=True)
     support = support[support.activity_estimable.astype(bool)].drop_duplicates(["dst_ip", "prefix24"])
     targets = universe.merge(support[["dst_ip", "prefix24"]], on=["dst_ip", "prefix24"], how="inner")
     targets = targets[targets.regional_eligible.astype(bool)].copy()
     candidate_path = dd / "candidate_ips.parquet"; targets.to_parquet(candidate_path, index=False)
-    grid = Events(cfg).build_cycle_grid(pd.read_parquet(dd / "cycle_quality.parquet"))
+    cycle_path = dd / "cycle_quality.parquet"
+    if cycle_path.exists():
+        cycle_quality = pd.read_parquet(cycle_path)
+    else:
+        # Formal Stage 0 keeps the canonical cycle table in the stage output;
+        # accept that artifact instead of requiring the retired legacy copy.
+        cycle_csv = cfg.run_base / "results" / "stages" / "stage00_quality" / "tables" / "stage00_cycle_quality.csv"
+        if not cycle_csv.exists():
+            raise RuntimeError("canonical cycle-quality table is required before calibration")
+        cycle_quality = pd.read_csv(cycle_csv)
+    grid = Events(cfg).build_cycle_grid(cycle_quality)
     events, segments = build_final_calibration_events(cfg, set(targets.target_admin1.dropna().astype(str)))
     if events.empty: raise RuntimeError("no reviewed P1/P2 calibration events after measurement boundary")
     events.to_csv(rt / "calibration_events.csv", index=False, encoding="utf-8-sig")
