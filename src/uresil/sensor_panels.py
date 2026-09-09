@@ -281,13 +281,18 @@ def _event_responses(cfg: Config, ch: CHClient, event: pd.Series, parts: list[st
     if sensors.empty:
         return pd.DataFrame(columns=["cycle_id", "analysis_unit_id", "method", "responders", "rtt_median"])
     prefixes = sensors.prefix24.drop_duplicates().astype(str).tolist()
+    # Reuse the configured ClickHouse prefix batch size.  The calibration and
+    # baseline stages already use runtime.prefix_batch (500 by default); a
+    # hard-coded 5000 here made each national-event response query materialize
+    # an unnecessarily large seven-day frame before it could be compacted.
+    batch_size = max(1, int(cfg.runtime.get("prefix_batch", 500)))
     # Aggregate each ClickHouse batch before retaining the next one.  Keeping
     # all per-IP response rows for a national event can occupy tens of GB even
     # though the downstream estimand only needs cycle×state×group counts.
     num = []
     compact_key = ["cycle_id", "target_admin1", "network_stratum", "sensitivity_stratum", "group", "method"]
-    for start in range(0, len(prefixes), 5000):
-        batch_prefixes = prefixes[start:start + 5000]
+    for start in range(0, len(prefixes), batch_size):
+        batch_prefixes = prefixes[start:start + batch_size]
         r = _query_response_window(cfg, ch, event_id=str(event["event_id"]), lo=lo, hi=hi,
                                    prefixes=batch_prefixes, cycle_seconds=h * 3600, logger=logger)
         if r.empty:
