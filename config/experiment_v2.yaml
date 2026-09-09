@@ -1,5 +1,8 @@
 freeze:
   plan_version: analysis_plan_v5_state_continuous_sensitivity
+  # Main runs stop after the observational H1--H4 chain.  Set true only for
+  # optional legacy external-validation/recovery supplements.
+  run_supplemental: false
   frozen: true
   measurement_view: AWS_Frankfurt_to_Ukraine
   event_registry: event_registry_v2.csv

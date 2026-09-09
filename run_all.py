@@ -32,6 +32,9 @@ from uresil.time_contract import measurement_time_contract
 # historical external-validation/recovery-debt stages remain available, but
 # must not delay production of the core tables or be mistaken for the main
 # estimand.
+CORE_STAGE_ORDER = ["preflight", "audit", "panels", "canonicalSignals", "baseline", "calibrate", "sensorPanels",
+                    "features", "expB", "paperAnalysis", "figures", "validate"]
+SUPPLEMENTAL_STAGE_ORDER = ["expF", "expD"]
 STAGE_ORDER = ["preflight", "audit", "panels", "canonicalSignals", "baseline", "calibrate", "sensorPanels",
                "features", "expB", "paperAnalysis", "expF", "expD", "figures", "validate"]
 
@@ -146,7 +149,13 @@ def main():
 
     cfg = load_config(args.config, run_id=args.run_id, mode=args.mode)
     cfg.raw.setdefault("_runtime_flags", {})["force_stage_recompute"] = bool(args.force)
-    stages = STAGE_ORDER if args.stage == ["all"] else args.stage
+    if args.stage == ["all"]:
+        # H1--H4 are the default paper run.  ExpF/ExpD are explicitly
+        # supplemental and cannot delay the core observational results.
+        run_supplemental = bool(cfg.raw.get("run_supplemental", False))
+        stages = STAGE_ORDER if run_supplemental else CORE_STAGE_ORDER
+    else:
+        stages = args.stage
     if stages and stages[0] != "preflight":
         stages = ["preflight"] + [x for x in stages if x != "preflight"]
     # This must precede mapping auto-freeze and every analytical query. It uses
