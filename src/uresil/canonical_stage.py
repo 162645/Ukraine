@@ -92,7 +92,7 @@ def _month_query(cfg: Config, start: pd.Timestamp, end: pd.Timestamp,
     aliases = ",".join(_sql_quote(x) for x in cfg.quality["valid_country_aliases"])
     if not complete_times:
         return "SELECT CAST(NULL AS DateTime) AS measure_time, '' AS country, '' AS region, toInt64(0) AS IPS, toInt64(0) AS FBS WHERE 0"
-    times = ",".join(f"toDateTime64('{t.strftime('%Y-%m-%d %H:%M:%S')}', 6, 'UTC')" for t in complete_times)
+    times = ",".join(f"toDateTime('{t.strftime('%Y-%m-%d %H:%M:%S')}', 'UTC')" for t in complete_times)
     return f"""
 WITH latest AS (
   SELECT ip, argMax(geo_country, updated_at) AS country, argMax(geo_region, updated_at) AS region
