@@ -106,7 +106,8 @@ WITH latest AS (
   ORDER BY prefix_key, n DESC, country, region LIMIT 1 BY prefix_key
 ), base AS (
   SELECT toStartOfInterval(p.measure_time, INTERVAL 2 HOUR) AS measure_time,
-         p.dst_ip, p.prefix24, l.country, l.region, pm.country AS prefix_country, pm.region AS prefix_region
+         p.dst_ip, p.prefix24, l.country AS ip_country, l.region AS ip_region,
+         pm.country AS prefix_country, pm.region AS prefix_region
   FROM {ping} p INNER JOIN latest l ON p.dst_ip = l.ip
   LEFT JOIN prefix_modal pm ON pm.prefix_key = concat(arrayElement(splitByChar('.', p.prefix24), 1), '.', arrayElement(splitByChar('.', p.prefix24), 2), '.', arrayElement(splitByChar('.', p.prefix24), 3))
   WHERE p.data_center = {_sql_quote(dc)} AND p.measure_time >= toDateTime64('{lo}', 6, 'UTC')
@@ -115,7 +116,7 @@ WITH latest AS (
 ), eligible AS (
   SELECT toStartOfMonth(measure_time) AS month, prefix24 FROM base GROUP BY month, prefix24 HAVING countDistinct(dst_ip) >= 3
 ), ips AS (
-  SELECT measure_time, country AS ip_country, region AS ip_region, countDistinct(dst_ip) AS IPS FROM base GROUP BY measure_time, country, region
+  SELECT measure_time, ip_country, ip_region, countDistinct(dst_ip) AS IPS FROM base GROUP BY measure_time, ip_country, ip_region
 ), active_blocks AS (
   SELECT DISTINCT measure_time, prefix24, prefix_country, prefix_region FROM base
 ), fbs AS (
