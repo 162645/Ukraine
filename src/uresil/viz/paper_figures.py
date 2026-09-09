@@ -83,6 +83,11 @@ def render(cfg, lang="en"):
     d, src = _source(cfg, "fig12_h3_activity_x_sensitivity")
     if not d.empty and {"activity_decile", "sensitivity_quintile", "peak_drop"}.issubset(d.columns):
         order_d = [f"D{i}" for i in range(1, 11)]; order_q = [f"Q{i}" for i in range(1, 6)]
+        if {"event_id", "admin1"}.issubset(d.columns):
+            d = (d.groupby(["event_id", "admin1", "activity_decile", "sensitivity_quintile"], dropna=False)
+                   [["peak_drop"]].mean().reset_index()
+                   .groupby(["event_id", "activity_decile", "sensitivity_quintile"], dropna=False)
+                   [["peak_drop"]].mean().reset_index())
         p = d.assign(activity_decile=d.activity_decile.astype(str), sensitivity_quintile=d.sensitivity_quintile.astype(str)).pivot_table(index="activity_decile", columns="sensitivity_quintile", values="peak_drop", aggfunc="mean").reindex(index=order_d, columns=order_q)
         fig, ax = plt.subplots(figsize=(cfg.figures["double_column_width_in"], 4.0)); im = ax.imshow(p.to_numpy(float), aspect="auto", cmap=DIVERGING); fig.colorbar(im, ax=ax, label="Peak drop")
         ax.set_xticks(range(len(order_q)), order_q); ax.set_yticks(range(len(order_d)), order_d); ax.set_xlabel("Sensitivity quintile"); ax.set_ylabel("Activity decile")
@@ -103,7 +108,13 @@ def render(cfg, lang="en"):
             fig, ax = plt.subplots(1, 3, figsize=(cfg.figures["double_column_width_in"], 3.2))
             for a, (metric, lab) in zip(ax, metrics):
                 if metric not in d: a.text(.5, .5, "Unavailable", ha="center", va="center", transform=a.transAxes); a.set_axis_off(); continue
-                g = d.groupby(xcol, dropna=False)[metric].agg(["mean", "count", "std"]).reset_index(); g["se"] = g["std"] / np.sqrt(g["count"].replace(0, np.nan));
+                z = d
+                if {"event_id", "admin1"}.issubset(z.columns):
+                    # Event-equal estimand: state means within event, then
+                    # equal event weights across the held-out registry.
+                    z = (z.groupby(["event_id", "admin1", xcol], dropna=False)[metric].mean().reset_index()
+                           .groupby(["event_id", xcol], dropna=False)[metric].mean().reset_index())
+                g = z.groupby(xcol, dropna=False)[metric].agg(["mean", "count", "std"]).reset_index(); g["se"] = g["std"] / np.sqrt(g["count"].replace(0, np.nan));
                 a.errorbar(g[xcol].astype(str), g["mean"], yerr=1.96*g["se"], marker="o", color=PALETTE[0], capsize=2); a.set_xlabel(xlabel); a.set_ylabel(lab); a.tick_params(axis="x", rotation=30)
                 if metric == "peak_drop": a.axhline(0, color="0.3", ls=":")
             outputs += _save(fig, cfg, stem, src, "Sensitivity quintile gradient for peak drop, outage hours, and recovery time with 95% confidence intervals.")
@@ -117,6 +128,9 @@ def render(cfg, lang="en"):
         for a, (typ, title) in zip(ax, [("S_REACH", "Sensitivity groups"), ("ACTIVITY", "Activity groups")]):
             q = d[d.group_type.astype(str).str.upper().eq(typ)]
             if q.empty: a.text(.5, .5, "Unavailable", ha="center", va="center", transform=a.transAxes); a.set_axis_off(); continue
+            if {"event_id", "admin1"}.issubset(q.columns):
+                q = (q.groupby(["event_id", "admin1", group_col], dropna=False)[["population_share", "loss_contribution"]].mean().reset_index()
+                       .groupby(["event_id", group_col], dropna=False)[["population_share", "loss_contribution"]].mean().reset_index())
             g = q.groupby(group_col, dropna=False)[["population_share", "loss_contribution"]].mean(); g.plot.bar(ax=a, color=[PALETTE[0], PALETTE[1]]); a.axhline(1, color="0.3", ls=":"); a.set_title(title, fontsize=9); a.set_xlabel("Group"); a.tick_params(axis="x", rotation=45)
         ax[0].set_ylabel("Share"); ax[-1].legend(frameon=False)
         outputs += _save(fig, cfg, "fig14_h4_loss_decomposition", src, "Population share and IPS-loss contribution for sensitivity and Activity endpoint groups; the reference line is one.")

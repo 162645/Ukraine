@@ -19,6 +19,7 @@ third-party network-observed regions only after the confirmatory result is froze
 from __future__ import annotations
 
 import glob
+import hashlib
 import json
 import pickle
 import time
@@ -28,7 +29,6 @@ from typing import Any
 import numpy as np
 import pandas as pd
 from scipy.stats import linregress, norm, t as student_t
-from sklearn.neighbors import NearestNeighbors
 
 from .config import Config, file_sha256
 from .db import CHClient
@@ -148,6 +148,9 @@ def _covariates(panel: pd.DataFrame) -> pd.DataFrame:
 
 
 def match_prefixes(panel: pd.DataFrame, affected: list[str], cfg: Config) -> pd.DataFrame:
+    # Legacy-only dependency: the confirmatory observational path never
+    # imports or executes matching.
+    from sklearn.neighbors import NearestNeighbors
     """Exact network-stratum/ASN matching using only the clean baseline."""
     cov = _covariates(panel)
     if cov.empty:
@@ -738,7 +741,15 @@ def _event_payload(store: dict[str, list[pd.DataFrame]]) -> dict[str, pd.DataFra
     return {key: _concat_frames(store[key]) for key in EXP_B_COMPONENTS}
 
 
-def _strict_prior_ratio(frame: pd.DataFrame, value_col: str = "IPS") -> pd.DataFrame:
+def _baseline_min_cycles(cfg: Config) -> int:
+    hours = float(cfg.study["expected_cycle_interval_hours"])
+    days = float(cfg.raw.get("group_ips", {}).get("baseline_days", 7))
+    expected = max(1, int(round(days * 24.0 / hours)))
+    fraction = float(cfg.raw.get("group_ips", {}).get("baseline_min_fraction", .75))
+    return max(3, int(np.ceil(expected * fraction)))
+
+
+def _strict_prior_ratio(frame: pd.DataFrame, value_col: str = "IPS", min_periods: int = 63) -> pd.DataFrame:
     """Compute current IPS divided by the strictly-prior 7-day mean.
 
     This is the same descriptive signal used by the canonical paper metric;
@@ -749,10 +760,7 @@ def _strict_prior_ratio(frame: pd.DataFrame, value_col: str = "IPS") -> pd.DataF
     for _, idx in z.groupby(["admin1", "group_type", "sensitivity_group"], dropna=False).groups.items():
         g = z.loc[idx].sort_values("measure_time")
         s = g.set_index("measure_time")[value_col].astype(float)
-        # At least three prior complete cycles prevents a one-point ratio from
-        # being reported as a seven-day baseline.  Incomplete acquisition
-        # cycles are absent before this function is called.
-        prior = s.rolling("7D", closed="left", min_periods=3).mean()
+        prior = s.rolling("7D", closed="left", min_periods=int(min_periods)).mean()
         z.loc[g.index, "IPS_7d_mean"] = prior.to_numpy()
     z["IPS_ratio"] = z[value_col] / z["IPS_7d_mean"].replace(0, np.nan)
     return z
@@ -812,7 +820,7 @@ def _lightweight_event_curves(cfg: Config, event: pd.Series, denom: pd.DataFrame
         g["group_type"] = group_type; g["event_id"] = str(event.event_id)
         g["event_family"] = str(event.event_family)
         g["rel_h"] = (pd.to_datetime(g.measure_time, utc=True) - Events.anchor_time(event)).dt.total_seconds() / 3600.0
-        g = _strict_prior_ratio(g)
+        g = _strict_prior_ratio(g, min_periods=_baseline_min_cycles(cfg))
         out[method] = g[(g.measure_time >= lo) & (g.measure_time <= hi)].copy()
     return out
 
@@ -858,7 +866,7 @@ def _observational_group_analysis(cfg: Config) -> dict:
                    .agg(IPS=("responders", "sum"), eligible_ip_n=("sensor_n", "sum"),
                         expected_response_n=("expected_response_n", "sum"))
                    .reset_index().rename(columns={"target_admin1": "admin1"}))
-            g = _strict_prior_ratio(g)
+            g = _strict_prior_ratio(g, min_periods=_baseline_min_cycles(cfg))
             g["event_id"] = event_id; g["event_family"] = str(event.event_family)
             g["rel_h"] = (pd.to_datetime(g.measure_time, utc=True) - anchor).dt.total_seconds() / 3600.0
             g = g[(g.measure_time >= lo) & (g.measure_time <= hi)].copy()
@@ -938,9 +946,18 @@ def _observational_group_analysis_lightweight(cfg: Config) -> dict:
     if not parts:
         raise RuntimeError("Experiment A score parts are required for lightweight ExpB")
     denom_path = cfg.out_dir("data_derived") / "sensor_denominators.parquet"
-    denom = pd.read_parquet(denom_path) if denom_path.exists() else build_denominators(cfg, parts)
-    if not denom_path.exists():
+    label_path = cfg.out_dir("results_tables") / "b1_full_sensitivity_labels.parquet"
+    sig_payload = {"labels": [label_path.stat().st_size, label_path.stat().st_mtime_ns] if label_path.exists() else None,
+                   "parts": [[Path(p).name, Path(p).stat().st_size, Path(p).stat().st_mtime_ns] for p in parts]}
+    denom_signature = hashlib.sha256(json.dumps(sig_payload, sort_keys=True).encode()).hexdigest()
+    sig_path = denom_path.with_suffix(".signature")
+    force = bool(cfg.raw.get("_runtime_flags", {}).get("force_stage_recompute", False))
+    valid_cache = (denom_path.exists() and sig_path.exists() and
+                   sig_path.read_text(encoding="utf-8").strip() == denom_signature)
+    denom = pd.read_parquet(denom_path) if valid_cache and not force else build_denominators(cfg, parts)
+    if not valid_cache or force:
         denom.to_parquet(denom_path, index=False)
+        sig_path.write_text(denom_signature, encoding="utf-8")
     cycle_h = float(cfg.study["expected_cycle_interval_hours"]); curves = []; metrics = []; assoc = []
     with CHClient(cfg) as ch:
         # The frozen label table is immutable across held-out attacks.  Load

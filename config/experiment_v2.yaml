@@ -310,6 +310,9 @@ exp_b:
   lightweight: true
 group_ips:
   baseline_days: 7
+  # Require at least 75% of the theoretical 2-hour cycles in the preceding
+  # seven days before reporting a formal group IPS ratio.
+  baseline_min_fraction: 0.75
 
 matching:
   exact_same_asn: true

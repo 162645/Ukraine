@@ -290,11 +290,21 @@ def run(cfg) -> dict:
         for hyp, name, metric in (("H1", "h1_ip_group_heterogeneity", "peak_drop"), ("H2", "h2_sensitivity_generalization", "peak_drop"), ("H2", "h2_sensitivity_generalization", "outage_hours"), ("H2", "h2_sensitivity_generalization", "recovery_time_h"), ("H3", "h3_activity_x_sensitivity", "peak_drop"), ("H3", "h3_activity_x_sensitivity", "outage_hours"), ("H3", "h3_activity_x_sensitivity", "recovery_time_h"), ("H4", "h4_ips_loss_decomposition", "loss_contribution")):
             t = tables[name]
             if t.empty or metric not in t: continue
-            v = pd.to_numeric(t[metric], errors="coerce").dropna()
+            # Event-equal summary: first average states within each event,
+            # then average registered events.  This prevents a nationwide
+            # attack from receiving more weight merely because it names more
+            # affected oblasts.
+            if {"event_id", "admin1"}.issubset(t.columns):
+                z = t[["event_id", "admin1", metric]].copy()
+                z[metric] = pd.to_numeric(z[metric], errors="coerce")
+                z = z.dropna(subset=[metric]).groupby(["event_id", "admin1"], dropna=False)[metric].mean().reset_index()
+                v = z.groupby("event_id", dropna=False)[metric].mean().dropna()
+            else:
+                v = pd.to_numeric(t[metric], errors="coerce").dropna()
             if v.empty: continue
             se = v.std(ddof=1) / np.sqrt(len(v)) if len(v) > 1 else np.nan
-            main_rows.append({"Hypothesis": hyp, "Metric": metric, "Effect": float(v.mean()), "CI_lo": float(v.mean() - 1.96 * se) if pd.notna(se) else np.nan, "CI_hi": float(v.mean() + 1.96 * se) if pd.notna(se) else np.nan, "Support": int(len(v)), "Conclusion": "descriptive; inferential conclusion requires real event support"})
-        _write(pd.DataFrame(main_rows, columns=["Hypothesis", "Metric", "Effect", "CI_lo", "CI_hi", "Support", "Conclusion"]), rt / "h1_h4_main_results.csv")
+            main_rows.append({"Hypothesis": hyp, "Metric": metric, "Effect": float(v.mean()), "CI_lo": float(v.mean() - 1.96 * se) if pd.notna(se) else np.nan, "CI_hi": float(v.mean() + 1.96 * se) if pd.notna(se) else np.nan, "Support": int(len(v)), "Aggregation": "event_equal", "Conclusion": "descriptive; inferential conclusion requires real event support"})
+        _write(pd.DataFrame(main_rows, columns=["Hypothesis", "Metric", "Effect", "CI_lo", "CI_hi", "Support", "Aggregation", "Conclusion"]), rt / "h1_h4_main_results.csv")
         # Explicit validation artifacts make the evidence boundary auditable.
         h4 = tables["h4_ips_loss_decomposition"]
         if h4.empty:

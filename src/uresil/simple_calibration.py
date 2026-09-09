@@ -436,8 +436,12 @@ def aggregate_sensors(candidates: pd.DataFrame) -> pd.DataFrame:
     summary = primary.merge(augmented, on=identity, how="outer")
     if summary.empty:
         return summary
-    summary["s_reach_quintile"] = _within_state_quantile(summary, "s_reach_primary", 5, "s_reach_quintile")
-    summary["s_rtt_quintile"] = _within_state_quantile(summary, "s_rtt_primary", 5, "s_rtt_quintile")
+    # The preliminary summary contains scores with support 1--2 as well as
+    # the formal support population.  Do not let those provisional scores
+    # determine the Q cut-points: final Q1--Q5 must be recomputed *after*
+    # the support>=min_independent_events contract is applied below.
+    summary["s_reach_quintile"] = pd.NA
+    summary["s_rtt_quintile"] = pd.NA
     # Legacy aliases are preserved for old readers, but Q1--Q5 are canonical.
     summary["s_reach_tier"] = _within_state_tertile(summary, "s_reach_primary", "s_reach_tier")
     summary["s_rtt_tier"] = _within_state_tertile(summary, "s_rtt_primary", "s_rtt_tier")
@@ -549,6 +553,21 @@ def run(cfg: Config) -> dict:
     labels["primary_estimable"] = labels.s_reach_primary.notna() & support_n.ge(min_events).fillna(False)
     aug_support_n = pd.to_numeric(labels.get("support_episode_n_augmented", pd.Series(np.nan, index=labels.index)), errors="coerce")
     labels["augmented_estimable"] = labels.s_reach_augmented.notna() & aug_support_n.ge(min_events).fillna(False)
+    # Formal sensitivity strata are within-state quintiles of the estimable
+    # population, not quintiles computed before provisional labels were
+    # removed.  This keeps Q1--Q5 balanced for the actual H2 denominator.
+    labels["s_reach_quintile"] = pd.Series(pd.NA, index=labels.index, dtype="string")
+    labels["s_rtt_quintile"] = pd.Series(pd.NA, index=labels.index, dtype="string")
+    q_reach = _within_state_quantile(labels.loc[labels.primary_estimable], "s_reach_primary", 5, "s_reach_quintile")
+    q_rtt = _within_state_quantile(labels.loc[labels.primary_estimable], "s_rtt_primary", 5, "s_rtt_quintile")
+    labels.loc[q_reach.index, "s_reach_quintile"] = q_reach
+    labels.loc[q_rtt.index, "s_rtt_quintile"] = q_rtt
+    labels["s_reach_tier"] = pd.Series(pd.NA, index=labels.index, dtype="string")
+    labels["s_rtt_tier"] = pd.Series(pd.NA, index=labels.index, dtype="string")
+    t_reach = _within_state_tertile(labels.loc[labels.primary_estimable], "s_reach_primary", "s_reach_tier")
+    t_rtt = _within_state_tertile(labels.loc[labels.primary_estimable], "s_rtt_primary", "s_rtt_tier")
+    labels.loc[t_reach.index, "s_reach_tier"] = t_reach
+    labels.loc[t_rtt.index, "s_rtt_tier"] = t_rtt
     p1_states = set(events.loc[events.use_main.eq(1), "geo_name"]); p2_states = set(events.loc[events.use_augmented.eq(1), "geo_name"])
     labels["not_estimable_reason"] = np.where(labels.primary_estimable, "", np.where(~labels.target_admin1.isin(p1_states), "no_calibration_event_for_state", "insufficient_measurement_support"))
     labels["augmented_not_estimable_reason"] = np.where(labels.augmented_estimable, "", np.where(~labels.target_admin1.isin(p2_states), "no_calibration_event_for_state", "insufficient_measurement_support"))
