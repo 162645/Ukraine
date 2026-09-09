@@ -97,7 +97,27 @@ def _calibrated_membership(cfg: Config) -> pd.DataFrame:
     return d[cols].drop_duplicates("dst_ip")
 
 
-def _read_sensor_part(cfg: Config, path: str, columns: list[str], membership: pd.DataFrame | None = None) -> pd.DataFrame:
+def _attach_membership(d: pd.DataFrame, membership: pd.DataFrame) -> pd.DataFrame:
+    d = d.drop(columns=["in_B2"], errors="ignore")
+    add_cols = [c for c in membership.columns if c == "dst_ip" or c not in d.columns]
+    d = d.merge(membership[add_cols], on="dst_ip", how="left", validate="many_to_one")
+    activity_col = d["activity_estimable"] if "activity_estimable" in d else d.get("in_B1", pd.Series(False, index=d.index))
+    activity_ok = activity_col.fillna(False).astype(bool)
+    regional_ok = d.get("regional_eligible", pd.Series(1, index=d.index)).fillna(0).astype(bool)
+    d["in_ALL"] = activity_ok & regional_ok
+    d["in_ACTIVITY"] = d["in_ALL"].astype(bool) & d.get("activity_decile", pd.Series(pd.NA, index=d.index)).notna()
+    d["in_B2"] = False
+    reach_group = d.get("s_reach_quintile", d.get("s_reach_tier", pd.Series(pd.NA, index=d.index)))
+    rtt_group = d.get("s_rtt_quintile", d.get("s_rtt_tier", pd.Series(pd.NA, index=d.index)))
+    primary_ok = d.get("primary_estimable", pd.Series(False, index=d.index)).fillna(False).astype(bool)
+    d["in_S_REACH"] = d["in_ALL"].astype(bool) & primary_ok & reach_group.notna()
+    d["in_S_RTT"] = d["in_ALL"].astype(bool) & primary_ok & rtt_group.notna()
+    d["in_ACTIVITY_S_REACH"] = d["in_ACTIVITY"].astype(bool) & primary_ok & reach_group.notna()
+    return d
+
+
+def _read_sensor_part(cfg: Config, path: str, columns: list[str], membership: pd.DataFrame | None = None,
+                      attach: bool = True) -> pd.DataFrame:
     try:
         d = pd.read_parquet(path, columns=columns)
     except (KeyError, ValueError):
@@ -113,12 +133,9 @@ def _read_sensor_part(cfg: Config, path: str, columns: list[str], membership: pd
             d["activity_score_smoothed"] = d["activity_score_raw"]
     if membership is None:
         membership = _calibrated_membership(cfg)
-    d = d.drop(columns=["in_B2"], errors="ignore")
-    # Parts already carry the Activity score and geography.  Add only frozen
-    # label columns that are absent; otherwise pandas creates _x/_y columns
-    # (notably activity_score_raw) and downstream grouping silently breaks.
-    add_cols = [c for c in membership.columns if c == "dst_ip" or c not in d.columns]
-    d = d.merge(membership[add_cols], on="dst_ip", how="left", validate="many_to_one")
+    if not attach:
+        return d
+    d = _attach_membership(d, membership)
     # Sensitivity remains continuous; no attack-informed or thresholded B2 set
     # is allowed to become the primary analysis sample.
     # The formal endpoint population is the common, activity-estimable target
@@ -152,35 +169,27 @@ def choose_primary_method(cfg: Config) -> str:
 
 def build_denominators(cfg: Config, parts: list[str]) -> pd.DataFrame:
     rows = []
-    cols = ["dst_ip", "prefix24", "target_asn", "target_country", "target_admin1",
-            "network_stratum", "pN", "activity_score_raw", "activity_score_smoothed",
-            "activity_estimable", "activity_decile", "in_B1", "in_B2",
-            "regional_eligible"]
-    for p in pbar(parts, desc="sensor denominators", unit="part"):
-        d = _read_sensor_part(cfg, p, cols)
-        group_cols = ["prefix24", "target_asn", "target_country", "target_admin1", "network_stratum"]
-        for m in METHODS:
-            z = d[d.get(f"in_{m}", False)].copy()
-            if z.empty:
-                continue
-            z["sensitivity_stratum"] = "all"
-            z["sensitivity_value"] = np.nan
-            if m == "ACTIVITY":
-                z["sensitivity_stratum"] = z["activity_decile"].astype(str)
-                z["sensitivity_value"] = pd.to_numeric(z["activity_score_raw"], errors="coerce")
-            elif m == "ACTIVITY_S_REACH":
-                z["sensitivity_stratum"] = z["activity_decile"].astype(str) + "|" + z["s_reach_quintile"].astype(str)
-                z["sensitivity_value"] = pd.to_numeric(z["s_reach"], errors="coerce")
-            elif m == "S_REACH":
-                z["sensitivity_stratum"] = (z["s_reach_quintile"] if "s_reach_quintile" in z else z["s_reach_tier"]).astype(str)
-                z["sensitivity_value"] = pd.to_numeric(z["s_reach"], errors="coerce")
-            elif m == "S_RTT":
-                z["sensitivity_stratum"] = (z["s_rtt_quintile"] if "s_rtt_quintile" in z else z["s_rtt_tier"]).astype(str)
-                z["sensitivity_value"] = pd.to_numeric(z["s_rtt"], errors="coerce")
-            rows.append(z.groupby([*group_cols, "sensitivity_stratum"])
-                        .agg(sensor_n=("pN", "size"), expected_response_n=("pN", "sum"),
-                             sensitivity_value=("sensitivity_value", "mean"))
-                        .reset_index().assign(method=m))
+    d = load_sensor_labels(cfg, parts)
+    if d.empty:
+        return pd.DataFrame()
+    group_cols = ["prefix24", "target_asn", "target_country", "target_admin1", "network_stratum"]
+    for m in METHODS:
+        z = d[d.get(f"in_{m}", False)].copy()
+        if z.empty:
+            continue
+        z["sensitivity_stratum"] = "all"; z["sensitivity_value"] = np.nan
+        if m == "ACTIVITY":
+            z["sensitivity_stratum"] = z["activity_decile"].astype(str); z["sensitivity_value"] = pd.to_numeric(z["activity_score_raw"], errors="coerce")
+        elif m == "ACTIVITY_S_REACH":
+            z["sensitivity_stratum"] = z["activity_decile"].astype(str) + "|" + z["s_reach_quintile"].astype(str); z["sensitivity_value"] = pd.to_numeric(z["s_reach"], errors="coerce")
+        elif m == "S_REACH":
+            z["sensitivity_stratum"] = (z["s_reach_quintile"] if "s_reach_quintile" in z else z["s_reach_tier"]).astype(str); z["sensitivity_value"] = pd.to_numeric(z["s_reach"], errors="coerce")
+        elif m == "S_RTT":
+            z["sensitivity_stratum"] = (z["s_rtt_quintile"] if "s_rtt_quintile" in z else z["s_rtt_tier"]).astype(str); z["sensitivity_value"] = pd.to_numeric(z["s_rtt"], errors="coerce")
+        rows.append(z.groupby([*group_cols, "sensitivity_stratum"])
+                    .agg(sensor_n=("pN", "size"), expected_response_n=("pN", "sum"),
+                         sensitivity_value=("sensitivity_value", "mean"))
+                    .reset_index().assign(method=m))
     if not rows:
         return pd.DataFrame()
     out = (pd.concat(rows, ignore_index=True)
@@ -211,17 +220,19 @@ def load_sensor_labels(cfg: Config, parts: list[str]) -> pd.DataFrame:
         return pd.read_parquet(cache)
     frames = []
     cols = ["dst_ip", "prefix24", "target_asn", "target_country", "target_admin1",
+            "pN",
             "network_stratum", "activity_score_raw", "activity_score_smoothed",
             "activity_estimable", "activity_decile", "in_B1", "in_B2",
             "regional_eligible"]
     for p in pbar(parts, desc="load frozen sensor labels", unit="part"):
-        d = _read_sensor_part(cfg, p, cols, membership=membership)
-        d = d[d.in_ALL | d.in_B1 | d.in_B2 | d.in_ACTIVITY | d.in_S_REACH | d.in_S_RTT]
+        d = _read_sensor_part(cfg, p, cols, attach=False)
         if not d.empty:
             frames.append(d)
     if not frames:
         return pd.DataFrame()
-    out = pd.concat(frames, ignore_index=True).drop_duplicates(["dst_ip", "prefix24"])
+    out = _attach_membership(pd.concat(frames, ignore_index=True), membership)
+    out = out[out.in_ALL | out.in_B1 | out.in_B2 | out.in_ACTIVITY | out.in_S_REACH | out.in_S_RTT]
+    out = out.drop_duplicates(["dst_ip", "prefix24"])
     out.to_parquet(cache, index=False)
     sig_path.write_text(signature, encoding="utf-8")
     return out
