@@ -262,7 +262,7 @@ def load_sensor_labels(cfg: Config, parts: list[str]) -> pd.DataFrame:
 
 
 def _event_responses(cfg: Config, ch: CHClient, event: pd.Series, parts: list[str],
-                     sensors: pd.DataFrame | None = None) -> pd.DataFrame:
+                     sensors: pd.DataFrame | None = None, *, compact: bool = False) -> pd.DataFrame:
     logger = get_logger(cfg.out_dir("logs"))
     ev = Events(cfg)
     lo, hi = ev.event_window(event)
@@ -313,14 +313,20 @@ def _event_responses(cfg: Config, ch: CHClient, event: pd.Series, parts: list[st
             z["analysis_unit_id"] = z.prefix24.astype(str) + "|" + z.group.astype(str)
             key = ["cycle_id", "prefix24", "target_asn", "target_country", "target_admin1", "network_stratum",
                    "sensitivity_stratum", "group", "analysis_unit_id"]
+            if compact:
+                # Lightweight ExpB only needs state×cycle×group numerators;
+                # dropping prefix-level keys here prevents the national event
+                # from retaining millions of redundant rows across batches.
+                key = ["cycle_id", "target_admin1", "network_stratum", "sensitivity_stratum", "group"]
             num.append(z.groupby(key).agg(
                 responders=("dst_ip", "nunique"), rtt_median=("rtt_ms", "median"))
                        .reset_index().assign(method=m))
         del r, sb
     if not num:
         return pd.DataFrame(columns=["cycle_id", "analysis_unit_id", "method", "responders", "rtt_median"])
-    key = ["cycle_id", "prefix24", "target_asn", "target_country", "target_admin1", "network_stratum",
-           "sensitivity_stratum", "group", "analysis_unit_id", "method"]
+    key = ["cycle_id", "target_admin1", "network_stratum", "sensitivity_stratum", "group", "method"] if compact else [
+        "cycle_id", "prefix24", "target_asn", "target_country", "target_admin1", "network_stratum",
+        "sensitivity_stratum", "group", "analysis_unit_id", "method"]
     return (pd.concat(num, ignore_index=True).groupby(key)
             .agg(responders=("responders", "sum"), rtt_median=("rtt_median", "median")).reset_index())
 

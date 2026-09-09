@@ -791,7 +791,7 @@ def _lightweight_event_curves(cfg: Config, event: pd.Series, denom: pd.DataFrame
         ["cycle_id", "measure_time"]].drop_duplicates()
     if cycles.empty:
         return {}
-    numer = _event_responses(cfg, ch, event, parts, sensors=sensors)
+    numer = _event_responses(cfg, ch, event, parts, sensors=sensors, compact=True)
     if numer.empty:
         return {}
     treated = Events.treated_admin1(event); out = {}
