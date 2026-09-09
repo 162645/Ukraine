@@ -94,9 +94,16 @@ def _month_query(cfg: Config, start: pd.Timestamp, end: pd.Timestamp,
         return "SELECT CAST(NULL AS DateTime) AS measure_time, '' AS country, '' AS region, toInt64(0) AS IPS, toInt64(0) AS FBS WHERE 0"
     times = ",".join(f"toDateTime('{t.strftime('%Y-%m-%d %H:%M:%S')}', 'UTC')" for t in complete_times)
     return f"""
-WITH latest AS (
+WITH observed_ips AS (
+  SELECT DISTINCT dst_ip
+  FROM {ping}
+  WHERE data_center = {_sql_quote(dc)} AND measure_time >= toDateTime64('{lo}', 6, 'UTC')
+    AND measure_time < toDateTime64('{hi}', 6, 'UTC') AND dst_ip != ''
+    AND toStartOfInterval(measure_time, INTERVAL 2 HOUR) IN ({times})
+), latest AS (
   SELECT ip, argMax(prefix24, updated_at) AS map_prefix24, argMax(geo_country, updated_at) AS country, argMax(geo_region, updated_at) AS region
-  FROM {mapping} WHERE updated_at <= toDateTime('{cutoff}', 'UTC') GROUP BY ip
+  FROM {mapping} WHERE updated_at <= toDateTime('{cutoff}', 'UTC')
+    AND ip IN (SELECT dst_ip FROM observed_ips) GROUP BY ip
 ), prefix_counts AS (
   SELECT map_prefix24 AS prefix24, country, region, count() AS n
   FROM latest WHERE country IN ({aliases}) AND map_prefix24 != '' GROUP BY prefix24, country, region
