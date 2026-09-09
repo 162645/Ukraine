@@ -285,6 +285,7 @@ def _event_responses(cfg: Config, ch: CHClient, event: pd.Series, parts: list[st
     # all per-IP response rows for a national event can occupy tens of GB even
     # though the downstream estimand only needs cycle×state×group counts.
     num = []
+    compact_key = ["cycle_id", "target_admin1", "network_stratum", "sensitivity_stratum", "group", "method"]
     for start in range(0, len(prefixes), 5000):
         batch_prefixes = prefixes[start:start + 5000]
         r = _query_response_window(cfg, ch, event_id=str(event["event_id"]), lo=lo, hi=hi,
@@ -322,12 +323,20 @@ def _event_responses(cfg: Config, ch: CHClient, event: pd.Series, parts: list[st
                 responders=("dst_ip", "nunique"), rtt_median=("rtt_ms", "median"))
                        .reset_index().assign(method=m))
         del r, sb
+        if compact and len(num) >= 8:
+            # Keep the compact accumulator bounded.  Without periodic
+            # consolidation, the final concat still retains one copy per
+            # prefix batch and recreates the memory spike we are avoiding.
+            merged = pd.concat(num, ignore_index=True)
+            num = [merged.groupby(compact_key, dropna=False)
+                   .agg(responders=("responders", "sum"), rtt_median=("rtt_median", "median"))
+                   .reset_index()]
     if not num:
         return pd.DataFrame(columns=["cycle_id", "analysis_unit_id", "method", "responders", "rtt_median"])
     key = ["cycle_id", "target_admin1", "network_stratum", "sensitivity_stratum", "group", "method"] if compact else [
         "cycle_id", "prefix24", "target_asn", "target_country", "target_admin1", "network_stratum",
         "sensitivity_stratum", "group", "analysis_unit_id", "method"]
-    return (pd.concat(num, ignore_index=True).groupby(key)
+    return (pd.concat(num, ignore_index=True).groupby(key, dropna=False)
             .agg(responders=("responders", "sum"), rtt_median=("rtt_median", "median")).reset_index())
 
 
