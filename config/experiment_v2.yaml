@@ -300,6 +300,13 @@ simple_calibration:
   proxy_evidence_tiers:
   - proxy
 
+# Confirmatory attack analysis is descriptive characterization of frozen IP
+# labels.  The old matching/placebo/prediction implementation is opt-in only.
+exp_b:
+  legacy_full: false
+group_ips:
+  baseline_days: 7
+
 matching:
   exact_same_asn: true
   exact_same_network_stratum: true
