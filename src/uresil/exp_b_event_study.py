@@ -479,7 +479,15 @@ def event_mean_curve(panel: pd.DataFrame, event: pd.Series, estimand: EventEstim
     x = panel if treated == ["ALL"] else panel[panel["target_admin1"].isin(treated)]
     if x.empty:
         return pd.DataFrame()
-    clean = x[x["is_clean_baseline"].eq(1)]["normalized_reach"]
+    # ``load_event_panel`` adds relative time but design annotations are
+    # applied later in the estimand loop.  The frozen sensor-panel parquet
+    # therefore legitimately has no ``is_clean_baseline`` column here.  Use
+    # the pre-anchor cycles as the same clean-baseline fallback; once
+    # ``annotate_design`` has run, the explicit mask remains authoritative.
+    if "is_clean_baseline" in x:
+        clean = x[x["is_clean_baseline"].eq(1)]["normalized_reach"]
+    else:
+        clean = x[x["rel_h"] < 0]["normalized_reach"]
     pre = float(clean.median()) if len(clean) else 1.0
     z = x.groupby("rel_bin")["normalized_reach"].mean().rename("raw_reach").reset_index()
     z["reach"] = 1.0 + z["raw_reach"] - pre; z["event_id"] = event["event_id"]
