@@ -115,16 +115,17 @@ WITH latest AS (
 ), eligible AS (
   SELECT toStartOfMonth(measure_time) AS month, prefix24 FROM base GROUP BY month, prefix24 HAVING countDistinct(dst_ip) >= 3
 ), ips AS (
-  SELECT measure_time, country, region, countDistinct(dst_ip) AS IPS FROM base GROUP BY measure_time, country, region
+  SELECT measure_time, country AS ip_country, region AS ip_region, countDistinct(dst_ip) AS IPS FROM base GROUP BY measure_time, country, region
 ), active_blocks AS (
   SELECT DISTINCT measure_time, prefix24, prefix_country, prefix_region FROM base
 ), fbs AS (
-  SELECT a.measure_time, a.prefix_country AS country, a.prefix_region AS region, countDistinct(a.prefix24) AS FBS
+  SELECT a.measure_time, a.prefix_country AS fbs_country, a.prefix_region AS fbs_region, countDistinct(a.prefix24) AS FBS
   FROM active_blocks a INNER JOIN eligible e ON e.month = toStartOfMonth(a.measure_time) AND e.prefix24 = a.prefix24
   WHERE a.prefix_country IN ({aliases}) GROUP BY a.measure_time, a.prefix_country, a.prefix_region
 )
-SELECT i.measure_time, i.country, i.region, i.IPS, coalesce(f.FBS, 0) AS FBS
-FROM ips i LEFT JOIN fbs f USING (measure_time, country, region)
+SELECT i.measure_time, i.ip_country AS country, i.ip_region AS region, i.IPS, coalesce(f.FBS, 0) AS FBS
+FROM ips i LEFT JOIN fbs f ON f.measure_time = i.measure_time
+  AND f.fbs_country = i.ip_country AND f.fbs_region = i.ip_region
 """
 
 
