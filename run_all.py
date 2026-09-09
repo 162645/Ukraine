@@ -27,8 +27,13 @@ from uresil.time_contract import measurement_time_contract
 # the sole later database stage: its query prefix set is defined by the local
 # features + expB matching outputs, so moving it earlier would change the
 # scientific sample rather than merely changing execution order.
+# The paper's confirmatory chain is H1--H4: frozen labels/panels -> group
+# features -> independent attack application (Exp B) -> paper tables.  The
+# historical external-validation/recovery-debt stages remain available, but
+# must not delay production of the core tables or be mistaken for the main
+# estimand.
 STAGE_ORDER = ["preflight", "audit", "panels", "canonicalSignals", "baseline", "calibrate", "sensorPanels",
-               "features", "expB", "expF", "expD", "paperAnalysis", "figures", "validate"]
+               "features", "expB", "paperAnalysis", "expF", "expD", "figures", "validate"]
 
 
 def completed(cfg, stage: str) -> bool:

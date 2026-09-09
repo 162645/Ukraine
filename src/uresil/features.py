@@ -119,14 +119,38 @@ def _aggregate_sensor_panel(panel: pd.DataFrame, event: pd.Series, cfg: Config) 
     agg = {
         "reach_prefix_equal": ("normalized_reach", "mean"),
         "sensor_reach_prefix_equal": ("sensor_reach", "mean"),
+        # Retain raw responsive-IP counts so the main group estimand can use
+        # the paper's IPS / strictly-prior 7-day mean ratio when the panel
+        # contains its baseline window.
         "eligible_prefix_n": ("prefix24", "nunique"),
         "sensor_n": ("sensor_n", "sum"),
         "expected_response_n": ("expected_response_n", "sum"),
     }
     if "rtt_median" in d.columns:
         agg["rtt_median"] = ("rtt_median", "median")
-    return (d.groupby(GROUP_KEYS + ["group", "method", "cycle_id", "measure_time", "rel_h"], dropna=False)
-            .agg(**agg).reset_index())
+    if "responders" in d.columns:
+        agg["group_ips_current"] = ("responders", "sum")
+    out = (d.groupby(GROUP_KEYS + ["group", "method", "cycle_id", "measure_time", "rel_h"], dropna=False)
+           .agg(**agg).reset_index())
+    out["measure_time"] = pd.to_datetime(out["measure_time"], utc=True)
+    # Strictly prior rolling baseline; the current cycle never contributes to
+    # its own denominator.  For early events without sufficient history the
+    # endpoint-normalized reach remains an explicit fallback.
+    if "group_ips_current" in out:
+        out["group_ips_7d_mean"] = np.nan
+        group_keys = ["target_asn", "target_country", "target_admin1", "group", "method"]
+        for _, idx in out.groupby(group_keys, dropna=False).groups.items():
+            z = out.loc[idx].sort_values("measure_time")
+            s = z.set_index("measure_time")["group_ips_current"].astype(float)
+            prior = s.rolling("7D", closed="left", min_periods=3).mean()
+            out.loc[z.index, "group_ips_7d_mean"] = prior.to_numpy()
+        out["group_ips_ratio"] = out["group_ips_current"] / out["group_ips_7d_mean"].replace(0, np.nan)
+        out["reach_metric"] = out["group_ips_ratio"].where(out["group_ips_ratio"].notna(), out["reach_prefix_equal"])
+        out["reach_metric_source"] = np.where(out["group_ips_ratio"].notna(), "group_ips_7d_ratio", "endpoint_expected_activity")
+    else:
+        out["reach_metric"] = out["reach_prefix_equal"]
+        out["reach_metric_source"] = "endpoint_expected_activity"
+    return out
 
 
 def _event_method_features(panel: pd.DataFrame, event: pd.Series, cfg: Config,
@@ -142,15 +166,19 @@ def _event_method_features(panel: pd.DataFrame, event: pd.Series, cfg: Config,
     for group, g in gpanel.groupby("group", sort=False):
         if g["eligible_prefix_n"].max() < int(cfg.group_admission["min_valid_prefix24"]):
             continue
+        # ``reach_metric`` is the paper IPS ratio whenever a strictly-prior
+        # 7-day group baseline is available; otherwise it is explicitly the
+        # endpoint-expected-activity fallback for early/under-covered events.
+        metric_col = "reach_metric" if "reach_metric" in g else "reach_prefix_equal"
         clean = g[g["measure_time"].between(b0, b1)]
         post = g[g["rel_h"] >= 0]
         if len(clean) < int(cfg.group_admission["min_pre_cycles"]):
             continue
         if len(post) < int(cfg.group_admission["min_post_cycles"]):
             continue
-        baseline = float(clean["reach_prefix_equal"].median())
-        lower = _robust_lower(clean["reach_prefix_equal"], cfg, baseline)
-        feat = event_features_for_series(g[["rel_h", "reach_prefix_equal"]], cfg,
+        baseline = float(clean[metric_col].median())
+        lower = _robust_lower(clean[metric_col], cfg, baseline)
+        feat = event_features_for_series(g[["rel_h", metric_col]].rename(columns={metric_col: "reach_prefix_equal"}), cfg,
                                          baseline=baseline, lower_band=lower,
                                          use_local_pre=False)
         if not feat:
@@ -158,7 +186,7 @@ def _event_method_features(panel: pd.DataFrame, event: pd.Series, cfg: Config,
         # Recovery debt observable immediately before the earliest treatment boundary.
         debt_start = estimand.treatment_start_utc - pd.Timedelta(hours=24)
         pre24 = g[g["measure_time"].between(debt_start, estimand.treatment_start_utc, inclusive="left")]
-        pre_event_reach = float(pre24["reach_prefix_equal"].median()) if not pre24.empty else np.nan
+        pre_event_reach = float(pre24[metric_col].median()) if not pre24.empty else np.nan
         pre_event_debt = max(0.0, baseline - pre_event_reach) if np.isfinite(pre_event_reach) else np.nan
         first = g.iloc[0]
         treated = estimand.treated_admin1
@@ -181,6 +209,11 @@ def _event_method_features(panel: pd.DataFrame, event: pd.Series, cfg: Config,
             "anchor_precision_h": float(event.get("anchor_precision_h", 0) or 0),
             "pre_event_reach_24h": pre_event_reach,
             "pre_event_debt": pre_event_debt,
+            "reach_metric": metric_col,
+            "reach_metric_source": ("group_ips_7d_ratio" if
+                                     "group_ips_ratio" in g and
+                                     g["group_ips_ratio"].notna().sum() >= 3
+                                     else "endpoint_expected_activity"),
         })
         rows.append(feat)
     return rows
@@ -196,9 +229,11 @@ def build_group_event_features(cfg: Config) -> tuple[pd.DataFrame, pd.DataFrame]
             if not path.exists():
                 logger.warning("Missing sensor event panel: %s", path.name); continue
             panel = pd.read_parquet(path)
-            # ALL is the canonical endpoint population; B1/B2 are retained as
-            # historical compatibility panels only.
-            for method in ("ALL", "B1", "B2"):
+            # ALL is the canonical population.  The paper analyses also need
+            # the frozen continuous Activity and sensitivity strata; silently
+            # reducing this list to the legacy B1/B2 methods disconnects H1-H3
+            # from the sensor panels that were just built.
+            for method in ("ALL", "ACTIVITY", "S_REACH", "S_RTT", "ACTIVITY_S_REACH"):
                 all_rows.extend(_event_method_features(panel, event, cfg, method))
     all_methods = pd.DataFrame(all_rows)
     primary_df = all_methods[all_methods["sensor_method"].eq(primary)].copy() if not all_methods.empty else pd.DataFrame()
@@ -208,8 +243,10 @@ def build_group_event_features(cfg: Config) -> tuple[pd.DataFrame, pd.DataFrame]
     pd.DataFrame([{
         "primary_sensor_method": primary, "n_group_event_primary": len(primary_df),
         "n_group_event_ALL": int((all_methods.get("sensor_method") == "ALL").sum()) if not all_methods.empty else 0,
-        "n_group_event_B1": int((all_methods.get("sensor_method") == "B1").sum()) if not all_methods.empty else 0,
-        "n_group_event_B2": int((all_methods.get("sensor_method") == "B2").sum()) if not all_methods.empty else 0,
+        "n_group_event_ACTIVITY": int((all_methods.get("sensor_method") == "ACTIVITY").sum()) if not all_methods.empty else 0,
+        "n_group_event_S_REACH": int((all_methods.get("sensor_method") == "S_REACH").sum()) if not all_methods.empty else 0,
+        "n_group_event_S_RTT": int((all_methods.get("sensor_method") == "S_RTT").sum()) if not all_methods.empty else 0,
+        "n_group_event_ACTIVITY_S_REACH": int((all_methods.get("sensor_method") == "ACTIVITY_S_REACH").sum()) if not all_methods.empty else 0,
     }]).to_csv(cfg.out_dir("results_tables") / "group_feature_summary.csv", index=False)
     return primary_df, all_methods
 

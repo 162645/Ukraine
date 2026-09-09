@@ -152,8 +152,13 @@ def _h1_h2_h3_h4(features: pd.DataFrame) -> dict[str, pd.DataFrame]:
                          "population_share": np.nan, "baseline_responsive": b, "event_responsive": e, "ips_loss": b-e})
         h4 = pd.DataFrame(rows)
         if not h4.empty:
-            h4["population_share"] = h4["eligible_ip_n"] / h4.groupby(["event_id", "admin1"])["eligible_ip_n"].transform("sum").replace(0, np.nan)
-            h4["loss_contribution"] = h4["ips_loss"] / h4.groupby(["event_id", "admin1"])["ips_loss"].transform("sum").replace(0, np.nan)
+            # Activity D1--D10 and sensitivity Q1--Q5 are two alternative
+            # decompositions of the same population.  Their denominators must
+            # be computed separately; pooling both label systems would make
+            # population shares and loss contributions sum to the wrong total.
+            denom_keys = ["event_id", "admin1", "group_type"]
+            h4["population_share"] = h4["eligible_ip_n"] / h4.groupby(denom_keys)["eligible_ip_n"].transform("sum").replace(0, np.nan)
+            h4["loss_contribution"] = h4["ips_loss"] / h4.groupby(denom_keys)["ips_loss"].transform("sum").replace(0, np.nan)
             h4["over_contribution_ratio"] = h4["loss_contribution"] / h4["population_share"].replace(0, np.nan)
             empty["h4_ips_loss_decomposition"] = h4
     return empty
@@ -253,7 +258,8 @@ def run(cfg) -> dict:
         if h4.empty:
             _write(pd.DataFrame(columns=["event_id", "admin1", "contribution_sum", "ok"]), rt / "h4_validation.csv")
         else:
-            chk = h4.groupby(["event_id", "admin1"], dropna=False)["loss_contribution"].sum().reset_index(name="contribution_sum")
+            chk_keys = ["event_id", "admin1"] + (["group_type"] if "group_type" in h4 else [])
+            chk = h4.groupby(chk_keys, dropna=False)["loss_contribution"].sum().reset_index(name="contribution_sum")
             chk["ok"] = np.isclose(chk["contribution_sum"], 1.0, atol=1e-6)
             _write(chk, rt / "h4_validation.csv")
         assoc = _read(rt / "attack_continuous_sensitivity_association.csv")

@@ -23,17 +23,20 @@ def _application_gain(table: pd.DataFrame, cfg: Config) -> tuple[pd.DataFrame, d
                 "deficit_auc_full", "max_deficit"}
     if table.empty or not required.issubset(table.columns):
         return pd.DataFrame(), {"estimable": False}
-    d = table[table.status.eq("ok") & table.sensor_method.isin(["ALL", "B1", "B2"])].copy()
+    # Legacy B1/B2 is no longer the confirmatory population.  Keep this
+    # comparison as an optional diagnostic over the frozen continuous labels.
+    d = table[table.status.eq("ok") & table.sensor_method.isin(["ALL", "ACTIVITY", "S_REACH"])].copy()
     rows = []
     for (event_id, estimand_id), group in d.groupby(["event_id", "estimand_id"]):
         methods = group.drop_duplicates("sensor_method").set_index("sensor_method")
-        sensor_method = "ALL" if "ALL" in methods.index else "B2"
-        if not {"B1", sensor_method}.issubset(methods.index):
+        sensor_method = "ALL" if "ALL" in methods.index else "S_REACH"
+        reference = "ACTIVITY" if "ACTIVITY" in methods.index else "S_REACH"
+        if not {reference, sensor_method}.issubset(methods.index):
             continue
-        b1_auc = pd.to_numeric(pd.Series([methods.loc["B1", "deficit_auc_full"]]), errors="coerce").iloc[0]
+        b1_auc = pd.to_numeric(pd.Series([methods.loc[reference, "deficit_auc_full"]]), errors="coerce").iloc[0]
         b2_auc = pd.to_numeric(pd.Series([methods.loc[sensor_method, "deficit_auc_full"]]), errors="coerce").iloc[0]
-        b1_max = pd.to_numeric(pd.Series([methods.loc["B1", "max_deficit"]]), errors="coerce").iloc[0]
-        b2_max = pd.to_numeric(pd.Series([methods.loc["B2", "max_deficit"]]), errors="coerce").iloc[0]
+        b1_max = pd.to_numeric(pd.Series([methods.loc[reference, "max_deficit"]]), errors="coerce").iloc[0]
+        b2_max = pd.to_numeric(pd.Series([methods.loc[sensor_method, "max_deficit"]]), errors="coerce").iloc[0]
         if pd.notna(b1_auc) and pd.notna(b2_auc):
             rows.append({"event_id": event_id, "estimand_id": estimand_id,
                          "b1_deficit_auc": b1_auc, "sensor_deficit_auc": b2_auc,
@@ -78,7 +81,7 @@ def run(cfg: Config) -> dict:
 
     panel = _read_csv(rt / "sensor_panel_summary.csv")
     method = str(panel.iloc[0].get("primary_sensor_method", "")) if not panel.empty else ""
-    add("frozen_calibrated_sensor_panel", method in {"ALL", "B2"},
+    add("frozen_calibrated_sensor_panel", method == "ALL",
         {"primary_sensor_method": method,
          "sensor_n": None if panel.empty else panel.iloc[0].get("n_ALL_sensor", panel.iloc[0].get("n_B2_sensor"))})
 
@@ -91,7 +94,22 @@ def run(cfg: Config) -> dict:
     comparison, application = _application_gain(_read_csv(rt / "exp_b_method_sensitivity.csv"), cfg)
     comparison_path = rt / "calibrated_vs_stable_by_event.csv"
     comparison.to_csv(comparison_path, index=False, encoding="utf-8-sig")
-    add("calibrated_vs_stable_comparison", bool(application.get("estimable")), application)
+    add("calibrated_vs_stable_comparison", bool(application.get("estimable")), application, required=False)
+
+    # H1--H4 are the paper's actual confirmatory outputs.  Their row counts
+    # are reported explicitly; absence is a data-availability warning, never
+    # silently interpreted as a successful test.
+    h_status = {}
+    for name, path in {
+        "H1": rt / "h1_ip_group_heterogeneity.csv",
+        "H2": rt / "h2_sensitivity_generalization.csv",
+        "H3": rt / "h3_activity_x_sensitivity.csv",
+        "H4": rt / "h4_ips_loss_decomposition.csv",
+    }.items():
+        tab = _read_csv(path)
+        h_status[name] = not tab.empty
+        add(f"{name.lower()}_paper_table", not tab.empty,
+            {"path": str(path), "row_n": int(len(tab))}, required=False)
 
     external = _read_csv(rt / "exp_f_external_validation.csv")
     add("external_event_concordance", not external.empty, {"row_n": len(external)}, required=False)
@@ -103,9 +121,9 @@ def run(cfg: Config) -> dict:
     hard_fail = [x for x in checks if x["required"] and x["status"] == "FAIL"]
     if hard_fail:
         closure = "RED_DATA_OR_DESIGN_FAILURE"
-    elif not application.get("estimable"):
+    elif not any(h_status.values()):
         closure = "YELLOW_INCOMPLETE_CORE_EVIDENCE"
-    elif float(application.get("mean_gain_deficit_auc", 0)) > 0:
+    elif application.get("estimable") and float(application.get("mean_gain_deficit_auc", 0)) > 0:
         closure = "GREEN_POSITIVE_CHAIN"
     else:
         closure = "GREEN_VALID_NEGATIVE_FINDINGS"

@@ -63,20 +63,35 @@ def _query_response_window(cfg: Config, ch: CHClient, *, event_id: str, lo, hi,
         return pd.concat([left, right], ignore_index=True)
 
 
+def _group_baseline_days(cfg: Config) -> int:
+    """Number of prior days retained for the paper-style group IPS ratio."""
+    return max(0, int(cfg.raw.get("group_ips", {}).get("baseline_days", 7)))
+
+
 def score_parts(cfg: Config) -> list[str]:
     return sorted(glob.glob(str(cfg.out_dir("data_derived") / "ip_sensor_scores_parts" / "part_*.parquet")))
 
 
 def _calibrated_membership(cfg: Config) -> pd.DataFrame:
-    path = cfg.out_dir("data_derived") / "calibrated_sensors.parquet"
+    # Activity deciles and the formal support>=3 estimability flags are added
+    # to the full label table after calibrated_sensors is aggregated.  Reading
+    # only calibrated_sensors here silently dropped D1--D10 and admitted
+    # under-supported Q labels into H1/H2.  Prefer the complete frozen label
+    # table, falling back to the compact sensor table for legacy fixtures.
+    label_path = cfg.out_dir("results_tables") / "b1_full_sensitivity_labels.parquet"
+    sensor_path = cfg.out_dir("data_derived") / "calibrated_sensors.parquet"
+    path = label_path if _readable_parquet(label_path) else sensor_path
     if not _readable_parquet(path):
         return pd.DataFrame(columns=["dst_ip", "s_reach", "s_rtt",
                                      "s_reach_quintile", "s_rtt_quintile",
-                                     "s_reach_tier", "s_rtt_tier"])
+                                     "s_reach_tier", "s_rtt_tier",
+                                     "activity_decile", "primary_estimable"])
     d = pd.read_parquet(path)
     cols = [c for c in ("dst_ip", "activity_score_raw", "activity_decile",
                         "s_reach", "s_rtt", "s_reach_quintile",
-                        "s_rtt_quintile", "s_reach_tier", "s_rtt_tier") if c in d]
+                        "s_rtt_quintile", "s_reach_tier", "s_rtt_tier",
+                        "primary_estimable", "augmented_estimable",
+                        "support_episode_n_primary") if c in d]
     return d[cols].drop_duplicates("dst_ip")
 
 
@@ -99,15 +114,26 @@ def _read_sensor_part(cfg: Config, path: str, columns: list[str]) -> pd.DataFram
     d = d.merge(membership, on="dst_ip", how="left", validate="many_to_one")
     # Sensitivity remains continuous; no attack-informed or thresholded B2 set
     # is allowed to become the primary analysis sample.
-    d["in_ALL"] = d.get("activity_estimable", d["in_B1"]).astype(bool)
+    # The formal endpoint population is the common, activity-estimable target
+    # universe *within a mapped Ukrainian oblast*.  Country-only/unknown
+    # mappings remain useful for acquisition diagnostics but cannot enter the
+    # state-level H1--H4 estimand.
+    activity_col = d["activity_estimable"] if "activity_estimable" in d else d.get(
+        "in_B1", pd.Series(False, index=d.index))
+    activity_ok = activity_col.fillna(False).astype(bool)
+    regional_ok = d.get("regional_eligible", pd.Series(1, index=d.index)).fillna(0).astype(bool)
+    d["in_ALL"] = activity_ok & regional_ok
     d["in_ACTIVITY"] = d["in_ALL"].astype(bool) & d.get(
         "activity_decile", pd.Series(pd.NA, index=d.index)).notna()
     d["in_B2"] = False
     reach_group = d.get("s_reach_quintile", d.get("s_reach_tier", pd.Series(pd.NA, index=d.index)))
     rtt_group = d.get("s_rtt_quintile", d.get("s_rtt_tier", pd.Series(pd.NA, index=d.index)))
-    d["in_S_REACH"] = d["in_ALL"].astype(bool) & reach_group.notna()
-    d["in_S_RTT"] = d["in_ALL"].astype(bool) & rtt_group.notna()
-    d["in_ACTIVITY_S_REACH"] = d["in_ACTIVITY"].astype(bool) & reach_group.notna()
+    # H2 uses the preregistered primary estimability contract, not merely the
+    # presence of a provisional quintile computed from one or two episodes.
+    primary_ok = d.get("primary_estimable", pd.Series(False, index=d.index)).fillna(False).astype(bool)
+    d["in_S_REACH"] = d["in_ALL"].astype(bool) & primary_ok & reach_group.notna()
+    d["in_S_RTT"] = d["in_ALL"].astype(bool) & primary_ok & rtt_group.notna()
+    d["in_ACTIVITY_S_REACH"] = d["in_ACTIVITY"].astype(bool) & primary_ok & reach_group.notna()
     return d
 
 
@@ -121,7 +147,8 @@ def build_denominators(cfg: Config, parts: list[str]) -> pd.DataFrame:
     rows = []
     cols = ["dst_ip", "prefix24", "target_asn", "target_country", "target_admin1",
             "network_stratum", "pN", "activity_score_raw", "activity_score_smoothed",
-            "activity_estimable", "activity_score_raw", "activity_decile", "in_B1", "in_B2"]
+            "activity_estimable", "activity_score_raw", "activity_decile", "in_B1", "in_B2",
+            "regional_eligible"]
     for p in pbar(parts, desc="sensor denominators", unit="part"):
         d = _read_sensor_part(cfg, p, cols)
         group_cols = ["prefix24", "target_asn", "target_country", "target_admin1", "network_stratum"]
@@ -167,11 +194,15 @@ def _event_responses(cfg: Config, ch: CHClient, event: pd.Series, parts: list[st
     logger = get_logger(cfg.out_dir("logs"))
     ev = Events(cfg)
     lo, hi = ev.event_window(event)
+    # Fetch the strictly-prior baseline window as well.  It is aggregated to
+    # state×group×cycle later and does not alter the registered attack window.
+    lo = lo - pd.Timedelta(days=_group_baseline_days(cfg))
     h = int(cfg.study["expected_cycle_interval_hours"])
     num = []
     cols = ["dst_ip", "prefix24", "target_asn", "target_country", "target_admin1",
             "network_stratum", "activity_score_raw", "activity_score_smoothed",
-            "activity_estimable", "activity_score_raw", "activity_decile", "in_B1", "in_B2"]
+            "activity_estimable", "activity_score_raw", "activity_decile", "in_B1", "in_B2",
+            "regional_eligible"]
     for p in pbar(parts, desc=f"sensor responses {event['event_id']}", unit="part"):
         sensors = _read_sensor_part(cfg, p, cols)
         sensors = sensors[sensors.in_ALL | sensors.in_B1 | sensors.in_B2 | sensors.in_ACTIVITY | sensors.in_S_REACH | sensors.in_S_RTT]
@@ -233,6 +264,7 @@ def build_event_panel(cfg: Config, event: pd.Series, denom: pd.DataFrame,
     ev = Events(cfg)
     grid = ev.build_cycle_grid(cq)
     lo, hi = ev.event_window(event)
+    lo = lo - pd.Timedelta(days=_group_baseline_days(cfg))
     cycles = grid[(grid.measure_time >= lo) & (grid.measure_time <= hi) & grid.is_complete.eq(1)][
         ["cycle_id", "measure_time", "slot"]]
     chunks = []
@@ -322,6 +354,10 @@ def run(cfg: Config) -> dict:
             "n_B1_regional_sensor": int(denom.loc[denom.method.eq("B1") & denom.regional_eligible.eq(1), "sensor_n"].sum()),
             "n_ALL_regional_sensor": int(denom.loc[denom.method.eq("ALL") & denom.regional_eligible.eq(1), "sensor_n"].sum()),
             "n_B2_regional_sensor": int(denom.loc[denom.method.eq("B2") & denom.regional_eligible.eq(1), "sensor_n"].sum()),
+            "n_ACTIVITY_sensor": int(denom.loc[denom.method.eq("ACTIVITY"), "sensor_n"].sum()),
+            "n_S_REACH_sensor": int(denom.loc[denom.method.eq("S_REACH"), "sensor_n"].sum()),
+            "n_S_RTT_sensor": int(denom.loc[denom.method.eq("S_RTT"), "sensor_n"].sum()),
+            "n_ACTIVITY_S_REACH_sensor": int(denom.loc[denom.method.eq("ACTIVITY_S_REACH"), "sensor_n"].sum()),
             "n_event_panel": len(written),
         }]).to_csv(cfg.out_dir("results_tables") / "sensor_panel_summary.csv", index=False)
     return {"status": "ok", "outputs": [str(cfg.out_dir("data_derived") / "sensor_denominators.parquet")] + written}

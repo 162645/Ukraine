@@ -118,6 +118,26 @@ def run(cfg: Config) -> dict:
     raw["admin1"] = [canon.canonical_admin1(c, r) for c, r in zip(raw.country, raw.region)]
     raw = raw[raw.admin1.isin(canon.valid_ua)].copy()
     raw = raw.groupby(["measure_time", "admin1"], as_index=False)[["IPS", "FBS"]].sum()
+    # A complete static scan with no responding IPs is an observed zero, not
+    # an absent row.  Build a dense complete-cycle x valid-Admin1 skeleton and
+    # left-join response aggregates.  Acquisition-incomplete cycles remain
+    # excluded through cycle_quality rather than being coerced to zero.
+    cq = pd.read_parquet(cfg.out_dir("data_derived") / "cycle_quality.parquet")
+    cq["measure_time"] = pd.to_datetime(cq["measure_time"], utc=True)
+    complete_times = cq.loc[cq["is_complete"].astype(bool), "measure_time"].drop_duplicates()
+    target_path = cfg.out_dir("data_derived") / "target_ip_universe.parquet"
+    try:
+        targets = pd.read_parquet(target_path, columns=["target_admin1", "regional_eligible"])
+    except (KeyError, ValueError):
+        targets = pd.read_parquet(target_path, columns=["target_admin1"])
+        targets["regional_eligible"] = ~targets["target_admin1"].astype(str).isin(
+            ["COUNTRY_ONLY_UA", "UNKNOWN_ADMIN1", "UNMAPPED_UA_ADMIN1"])
+    admin1 = sorted(targets.loc[targets["regional_eligible"].astype(bool), "target_admin1"].dropna().astype(str).unique())
+    if admin1 and len(complete_times):
+        skeleton = pd.MultiIndex.from_product([complete_times.tolist(), admin1], names=["measure_time", "admin1"]).to_frame(index=False)
+        raw = skeleton.merge(raw, on=["measure_time", "admin1"], how="left")
+        raw["IPS"] = pd.to_numeric(raw["IPS"], errors="coerce").fillna(0).astype("int64")
+        raw["FBS"] = pd.to_numeric(raw["FBS"], errors="coerce").fillna(0).astype("int64")
     mcfg = cfg.raw.get("macro_signals", {})
     scored = add_rolling_ratios(
         raw,

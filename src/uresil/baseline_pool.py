@@ -29,10 +29,16 @@ def select_baseline_cycles(cfg: Config, grid: pd.DataFrame, targets: pd.DataFram
     clean = grid[grid.is_complete.astype(bool) & attack_clean & ~grid.cycle_id.isin(excluded) &
                  pd.to_datetime(grid.measure_time, utc=True).ge(measurement_start)].copy()
     clean["slot"] = slot_of(clean.measure_time, int(cycle_h))
-    per_slot = int(cfg.simple_calibration.get("baseline_cycles_per_slot", 12))
-    chosen = (clean.sort_values("measure_time").groupby("slot", group_keys=False)
-              .tail(per_slot))
-    return sorted(chosen.cycle_id.astype("int64").unique())
+    # The paper definition uses every eligible clean normal cycle.  A
+    # slot-balanced subset is retained only as an explicitly requested
+    # robustness option; it must not silently replace the primary Activity
+    # denominator.
+    slot_balanced = bool(cfg.raw.get("ip_activity", {}).get("slot_balanced_primary", False))
+    if slot_balanced:
+        per_slot = int(cfg.simple_calibration.get("baseline_cycles_per_slot", 12))
+        clean = (clean.sort_values("measure_time").groupby("slot", group_keys=False)
+                  .tail(per_slot))
+    return sorted(clean.cycle_id.astype("int64").unique())
 
 
 def run(cfg: Config) -> dict:
@@ -61,15 +67,19 @@ def run(cfg: Config) -> dict:
                                dc=cfg.study["data_center"], prefix_in=S.str_list(prefix_batch),
                                normal_cids=S.int_list(normal), cycle_seconds=cycle_seconds)
                 raw = ch.query_df(sql)
-                if raw.empty:
-                    continue
                 columns = [c for c in ("dst_ip", "prefix24", "target_asn", "target_country",
                                        "target_admin1", "target_city", "target_geo_latitude",
                                        "target_geo_longitude", "target_geo_precision", "target_as_name",
                                        "target_isp_domain", "network_stratum", "regional_eligible",
                                        "country_only_admin1", "group", "analysis_unit_id") if c in targets]
-                d = raw.merge(targets[columns].drop_duplicates(["dst_ip", "prefix24"]),
-                              on=["dst_ip", "prefix24"], how="inner", validate="many_to_one")
+                # Static full scans define a common denominator: a target IP
+                # absent from an import-complete cycle contributes y=0.  Start
+                # from the target universe and left-join observed responses;
+                # never let "responded at least once" define Activity.
+                base = targets[targets.prefix24.astype(str).isin(set(map(str, prefix_batch)))][columns].drop_duplicates(
+                    ["dst_ip", "prefix24"])
+                observed = raw[[c for c in ("dst_ip", "prefix24", "x_normal") if c in raw]].copy()
+                d = base.merge(observed, on=["dst_ip", "prefix24"], how="left", validate="one_to_one")
                 d["n_normal"] = len(normal)
                 d["x_normal"] = pd.to_numeric(d.x_normal, errors="coerce").fillna(0)
                 # Activity is a continuous endpoint feature, not a hard gate.
