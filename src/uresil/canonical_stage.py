@@ -274,7 +274,7 @@ def _render_figures(cfg: Config, root: Path, scored: pd.DataFrame, states: list[
     def arr(col): return scored.pivot(index="admin1", columns="measure_time", values=col).reindex(index=states, columns=times).to_numpy(dtype=float)
     outs = []
     def heat(col, stem, fid, label, vmin=.4, vmax=1.2):
-        src = root / "figure_data" / f"{stem}.csv"; scored[["measure_time", "admin1", "cycle_complete", col, f"{col.split('_')[0]}_7d_mean", f"{col.split('_')[0]}_baseline_cycle_n"]].to_csv(src, index=False, encoding="utf-8-sig")
+        prefix = col.split("_")[0].lower(); src = root / "figure_data" / f"{stem}.csv"; scored[["measure_time", "admin1", "cycle_complete", col, f"{prefix}_7d_mean", f"{prefix}_baseline_cycle_n"]].to_csv(src, index=False, encoding="utf-8-sig")
         fig, ax = plt.subplots(figsize=(7.16, 3.9)); cm = plt.get_cmap("RdYlGn").copy(); cm.set_bad("#d9d9d9"); im = ax.imshow(np.ma.masked_invalid(arr(col)), aspect="auto", cmap=cm, norm=TwoSlopeNorm(vmin=vmin, vcenter=1, vmax=vmax), interpolation="none"); ax.set_yticks(range(len(states)), states); ax.set_ylabel("Oblast"); xt = np.linspace(0, len(times)-1, min(8, len(times)), dtype=int); ax.set_xticks(xt, [pd.Timestamp(times[i]).strftime("%Y-%m") for i in xt], rotation=35, ha="right"); ax.set_xlabel("UTC date / time"); marks(ax); fig.colorbar(im, ax=ax, label=label); fig.tight_layout(); outs.extend(_save(fig, root / "figures" / stem, cfg)); plt.close(fig)
         _meta(root, stem, fid, src, x="UTC date / time", y="Oblast", aggregation="one cell per 2h state-cycle", sample="all valid Ukraine Admin1; no Activity/B1 restriction", baseline="preceding 7-day complete-cycle mean; current cycle excluded", thresholds={"baseline_min_fraction": .75, "min_history_cycles": 63}, event_set="six fixed core attacks")
     heat("IPS_ratio", "fig_S1_1_ips_oblast_time", "S1-1", "IPS / preceding 7-day mean")
@@ -308,9 +308,19 @@ def run(cfg: Config) -> dict:
     logger = get_logger(cfg.out_dir("logs")); started = datetime.now(timezone.utc); root = _root(cfg)
     with step("Stage 1: canonical IPS/FBS", logger):
         cycles = _stage0_cycles(cfg); canon = Admin1Canonicalizer(cfg.resource_path("admin1_aliases"), cfg.quality["unknown_labels"], cfg.quality["valid_country_aliases"]); states = _valid_states(cfg, canon)
-        raw = _fetch_signals(cfg, cycles, canon); scored = _skeleton(cycles, states, raw); mcfg = cfg.raw.get("macro_signals", {})
-        scored = add_rolling_ratios(scored, days=7, cycle_hours=2, ips_threshold=float(mcfg.get("ips_outage_ratio", .90)), fbs_threshold=float(mcfg.get("fbs_outage_ratio", .95)), baseline_min_fraction=float(mcfg.get("baseline_min_fraction", .75)))
-        scored = scored.sort_values(["measure_time", "admin1"]).reset_index(drop=True); scored.loc[~scored.cycle_complete, ["IPS", "FBS", "IPS_7d_mean", "IPS_ratio", "FBS_7d_mean", "FBS_ratio", "ips_outage", "fbs_outage"]] = np.nan
+        cached = root / "tables" / "canonical_ips_fbs_2h.parquet"
+        if cached.exists():
+            scored = pd.read_parquet(cached)
+            scored["measure_time"] = pd.to_datetime(scored["measure_time"], utc=True)
+            scored["cycle_complete"] = scored["cycle_complete"].astype(bool)
+        else:
+            raw = _fetch_signals(cfg, cycles, canon); scored = _skeleton(cycles, states, raw); mcfg = cfg.raw.get("macro_signals", {})
+            scored = add_rolling_ratios(scored, days=7, cycle_hours=2, ips_threshold=float(mcfg.get("ips_outage_ratio", .90)), fbs_threshold=float(mcfg.get("fbs_outage_ratio", .95)), baseline_min_fraction=float(mcfg.get("baseline_min_fraction", .75)))
+            scored = scored.sort_values(["measure_time", "admin1"]).reset_index(drop=True)
+        scored.loc[~scored.cycle_complete, ["IPS", "FBS", "IPS_7d_mean", "IPS_ratio", "FBS_7d_mean", "FBS_ratio"]] = np.nan
+        for flag in ("ips_outage", "fbs_outage"):
+            scored[flag] = scored[flag].astype("boolean")
+            scored.loc[~scored.cycle_complete, flag] = pd.NA
         events = _events(cfg); calendar = _power_calendar(cfg, scored, states, events); core, checks = _core_summaries(scored, events, states, canon); low = _low_response_diagnosis(scored, cycles, states)
         summary = scored.groupby("admin1", as_index=False).agg(complete_cycle_n=("cycle_complete", "sum"), ips_estimable_cycle_n=("IPS_ratio", "count"), fbs_estimable_cycle_n=("FBS_ratio", "count"), mean_ips=("IPS", "mean"), median_ips=("IPS", "median"), min_ips_ratio=("IPS_ratio", "min"), ips_outage_cycle_n=("ips_outage", "sum"), min_fbs_ratio=("FBS_ratio", "min"), fbs_outage_cycle_n=("fbs_outage", "sum")); summary["ips_outage_hours"] = summary.ips_outage_cycle_n * 2; summary["fbs_outage_hours"] = summary.fbs_outage_cycle_n * 2
         cols = ["measure_time", "admin1", "IPS", "IPS_7d_mean", "IPS_ratio", "ips_baseline_cycle_n", "ips_outage", "FBS", "FBS_7d_mean", "FBS_ratio", "fbs_baseline_cycle_n", "fbs_outage", "cycle_complete"]
