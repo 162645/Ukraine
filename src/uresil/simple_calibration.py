@@ -479,6 +479,7 @@ def run(cfg: Config) -> dict:
     for _, group in segments[segments.schedule_positive.eq(1)].groupby("event_id"):
         all_outage_ids.update(_overlap_cycle_ids(grid, group, cycle_h=cycle_h, min_overlap_fraction=float(cfg.simple_calibration["min_cycle_overlap_fraction"]), buffer_minutes=int(cfg.simple_calibration["transition_buffer_minutes"])))
     cache = dd / "simple_calibration" / "event_sensitivity_v5_excel"; cache.mkdir(parents=True, exist_ok=True)
+    force = bool(cfg.raw.get("_runtime_flags", {}).get("force_stage_recompute", False))
     audit_rows, candidate_parts = [], []
     with step("Reviewed Excel planned-outage calibration", logger):
         with CHClient(cfg) as ch:
@@ -492,7 +493,7 @@ def run(cfg: Config) -> dict:
                 if len(cycles["normal"]) < int(cfg.simple_calibration["min_normal_cycles"]): reasons.append("insufficient_normal_controls")
                 estimable = not reasons; selected = pd.DataFrame(); path = cache / f"{event_id}.parquet"
                 if estimable:
-                    if path.exists() and path.stat().st_size: selected = pd.read_parquet(path)
+                    if path.exists() and path.stat().st_size and not force: selected = pd.read_parquet(path)
                     else:
                         raw = _query_event(ch, cfg, region_targets, cycles)
                         if not raw.empty:
