@@ -121,7 +121,7 @@ WITH latest AS (
 ), fbs AS (
   SELECT a.measure_time, a.prefix_country AS country, a.prefix_region AS region, countDistinct(a.prefix24) AS FBS
   FROM active_blocks a INNER JOIN eligible e ON e.month = toStartOfMonth(a.measure_time) AND e.prefix24 = a.prefix24
-  WHERE a.prefix_country IN ({aliases}) GROUP BY a.measure_time, country, region
+  WHERE a.prefix_country IN ({aliases}) GROUP BY a.measure_time, a.prefix_country, a.prefix_region
 )
 SELECT i.measure_time, i.country, i.region, i.IPS, coalesce(f.FBS, 0) AS FBS
 FROM ips i LEFT JOIN fbs f USING (measure_time, country, region)
