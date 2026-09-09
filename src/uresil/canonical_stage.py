@@ -188,8 +188,15 @@ def _core_summaries(scored: pd.DataFrame, events: pd.DataFrame, states: list[str
     for _, event in events.iterrows():
         affected = _split_states(event.get("analysis_treated_admin1", "ALL"), states, canon)
         anchor = pd.to_datetime(event.primary_anchor_utc, utc=True); lo, hi = anchor - pd.Timedelta(hours=24), anchor + pd.Timedelta(hours=72)
-        times = pd.date_range(lo, hi, freq="2h", tz="UTC")
-        d = scored[scored.admin1.isin(affected) & scored.measure_time.isin(times)]
+        # Event anchors can fall between the fixed 2-hour measurement bins
+        # (e.g. 05:10).  Align the window to the actual complete-cycle axis;
+        # generating a new date_range from the raw anchor would miss every
+        # cycle in such a window and falsely report zero coverage.
+        times = sorted(scored.loc[
+            scored.cycle_complete & scored.measure_time.between(lo, hi),
+            "measure_time",
+        ].drop_duplicates().tolist())
+        d = scored[scored.admin1.isin(affected) & scored.measure_time.isin(times) & scored.cycle_complete]
         curve = d.groupby("measure_time", as_index=False).agg(ips_ratio=("IPS_ratio", "mean"), fbs_ratio=("FBS_ratio", "mean"))
         curve["ips_outage"] = curve.ips_ratio.lt(.90); curve["fbs_outage"] = curve.fbs_ratio.lt(.95) & curve.ips_ratio.lt(.95)
         coverage = curve.measure_time.nunique() / len(times) if len(times) else np.nan
