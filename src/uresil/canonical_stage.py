@@ -119,7 +119,7 @@ WITH latest AS (
 ), active_blocks AS (
   SELECT DISTINCT measure_time, block_prefix24, prefix_country, prefix_region FROM base
 ), fbs AS (
-  SELECT a.measure_time, a.prefix_country AS fbs_country, a.prefix_region AS fbs_region, countDistinct(a.prefix24) AS FBS
+  SELECT a.measure_time, a.prefix_country AS fbs_country, a.prefix_region AS fbs_region, countDistinct(a.block_prefix24) AS FBS
   FROM active_blocks a INNER JOIN eligible e ON e.month = toStartOfMonth(a.measure_time) AND e.block_prefix24 = a.block_prefix24
   WHERE a.prefix_country IN ({aliases}) GROUP BY a.measure_time, a.prefix_country, a.prefix_region
 )
