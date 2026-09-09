@@ -28,7 +28,8 @@ from uresil.time_contract import measurement_time_contract
 # prediction and recovery-debt stages remain available as explicit
 # supplemental diagnostics, but never delay or redefine the main estimand.
 FORMAL_STAGE_ORDER = ["stage00_quality", "stage01_canonical", "stage02_activity",
-                      "stage03_calibration_events", "stage04_sensitivity", "stage05_h1",
+                      "stage03_calibration_events", "stage03_5_episode_audit",
+                      "stage04_sensitivity", "stage05_h1",
                       "stage06_h2", "stage07_h3", "stage08_h4", "stage09_robustness",
                       "stage10_paper"]
 CORE_STAGE_ORDER = ["preflight", "audit", "panels", "canonicalSignals", "baseline", "calibrate",
@@ -61,6 +62,9 @@ def execute(stage: str, cfg):
         return m.run(cfg)
     if stage == "stage03_calibration_events":
         from uresil import calibration_stage as m
+        return m.run(cfg)
+    if stage == "stage03_5_episode_audit":
+        from uresil import episode_audit_stage as m
         return m.run(cfg)
     if stage in FORMAL_STAGE_ORDER[2:]:
         raise RuntimeError(
