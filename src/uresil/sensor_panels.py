@@ -281,36 +281,42 @@ def _event_responses(cfg: Config, ch: CHClient, event: pd.Series, parts: list[st
     if sensors.empty:
         return pd.DataFrame(columns=["cycle_id", "analysis_unit_id", "method", "responders", "rtt_median"])
     prefixes = sensors.prefix24.drop_duplicates().astype(str).tolist()
-    response_frames = []
+    # Aggregate each ClickHouse batch before retaining the next one.  Keeping
+    # all per-IP response rows for a national event can occupy tens of GB even
+    # though the downstream estimand only needs cycle×state×group counts.
+    num = []
     for start in range(0, len(prefixes), 5000):
+        batch_prefixes = prefixes[start:start + 5000]
         r = _query_response_window(cfg, ch, event_id=str(event["event_id"]), lo=lo, hi=hi,
-                                   prefixes=prefixes[start:start + 5000], cycle_seconds=h * 3600, logger=logger)
-        if not r.empty:
-            response_frames.append(r)
-    if not response_frames:
-        return pd.DataFrame(columns=["cycle_id", "analysis_unit_id", "method", "responders", "rtt_median"])
-    r = pd.concat(response_frames, ignore_index=True).merge(sensors, on=["dst_ip", "prefix24"], how="inner")
-    for m in METHODS:
-        z = r[r.get(f"in_{m}", False)].copy()
-        if z.empty:
+                                   prefixes=batch_prefixes, cycle_seconds=h * 3600, logger=logger)
+        if r.empty:
             continue
-        z["sensitivity_stratum"] = "all"
-        if m == "ACTIVITY":
-            z["sensitivity_stratum"] = z["activity_decile"].astype(str)
-        elif m == "ACTIVITY_S_REACH":
-            z["sensitivity_stratum"] = z["activity_decile"].astype(str) + "|" + z["s_reach_quintile"].astype(str)
-        elif m == "S_REACH":
-            z["sensitivity_stratum"] = (z["s_reach_quintile"] if "s_reach_quintile" in z else z["s_reach_tier"]).astype(str)
-        elif m == "S_RTT":
-            z["sensitivity_stratum"] = (z["s_rtt_quintile"] if "s_rtt_quintile" in z else z["s_rtt_tier"]).astype(str)
-        z["group"] = (z.network_stratum.astype(str) + "|" + z.target_asn.astype(str) + "|" + z.target_country.astype(str)
-                      + "|" + z.target_admin1.astype(str) + "|" + z.sensitivity_stratum.astype(str))
-        z["analysis_unit_id"] = z.prefix24.astype(str) + "|" + z.group.astype(str)
-        key = ["cycle_id", "prefix24", "target_asn", "target_country", "target_admin1", "network_stratum",
-               "sensitivity_stratum", "group", "analysis_unit_id"]
-        num.append(z.groupby(key).agg(
-            responders=("dst_ip", "nunique"), rtt_median=("rtt_ms", "median"))
-                   .reset_index().assign(method=m))
+        sb = sensors[sensors.prefix24.astype(str).isin(set(batch_prefixes))]
+        r = r.merge(sb, on=["dst_ip", "prefix24"], how="inner")
+        if r.empty:
+            continue
+        for m in METHODS:
+            z = r[r.get(f"in_{m}", False)].copy()
+            if z.empty:
+                continue
+            z["sensitivity_stratum"] = "all"
+            if m == "ACTIVITY":
+                z["sensitivity_stratum"] = z["activity_decile"].astype(str)
+            elif m == "ACTIVITY_S_REACH":
+                z["sensitivity_stratum"] = z["activity_decile"].astype(str) + "|" + z["s_reach_quintile"].astype(str)
+            elif m == "S_REACH":
+                z["sensitivity_stratum"] = (z["s_reach_quintile"] if "s_reach_quintile" in z else z["s_reach_tier"]).astype(str)
+            elif m == "S_RTT":
+                z["sensitivity_stratum"] = (z["s_rtt_quintile"] if "s_rtt_quintile" in z else z["s_rtt_tier"]).astype(str)
+            z["group"] = (z.network_stratum.astype(str) + "|" + z.target_asn.astype(str) + "|" + z.target_country.astype(str)
+                          + "|" + z.target_admin1.astype(str) + "|" + z.sensitivity_stratum.astype(str))
+            z["analysis_unit_id"] = z.prefix24.astype(str) + "|" + z.group.astype(str)
+            key = ["cycle_id", "prefix24", "target_asn", "target_country", "target_admin1", "network_stratum",
+                   "sensitivity_stratum", "group", "analysis_unit_id"]
+            num.append(z.groupby(key).agg(
+                responders=("dst_ip", "nunique"), rtt_median=("rtt_ms", "median"))
+                       .reset_index().assign(method=m))
+        del r, sb
     if not num:
         return pd.DataFrame(columns=["cycle_id", "analysis_unit_id", "method", "responders", "rtt_median"])
     key = ["cycle_id", "prefix24", "target_asn", "target_country", "target_admin1", "network_stratum",
