@@ -49,7 +49,7 @@ def _truthy(series: pd.Series) -> pd.Series:
     return numeric.fillna(0).gt(0) | text.isin({"true", "yes", "y", "done"})
 
 
-def run_cycle_audit(cfg: Config, ch: CHClient) -> pd.DataFrame:
+def run_cycle_audit(cfg: Config, ch: CHClient, *, persist: bool = True) -> pd.DataFrame:
     logger = get_logger(cfg.out_dir("logs"))
     h = int(cfg.study["expected_cycle_interval_hours"])
     common = dict(start=cfg.study["start_utc"], end=cfg.study["end_utc"],
@@ -138,7 +138,8 @@ def run_cycle_audit(cfg: Config, ch: CHClient) -> pd.DataFrame:
     grid.loc[~status_ok, "exclusion_reason"] += "import_not_done;"
     grid.loc[~no_error, "exclusion_reason"] += "import_error;"
     grid.loc[grid["in_observed_support"].eq(0), "exclusion_reason"] += "outside_observed_support;"
-    grid.to_parquet(cfg.out_dir("data_derived") / "cycle_quality.parquet", index=False)
+    if persist:
+        grid.to_parquet(cfg.out_dir("data_derived") / "cycle_quality.parquet", index=False)
     return grid
 
 

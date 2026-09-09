@@ -27,11 +27,16 @@ from uresil.time_contract import measurement_time_contract
 # attack application (Exp B) -> paper tables.  Historical sensor-panel,
 # prediction and recovery-debt stages remain available as explicit
 # supplemental diagnostics, but never delay or redefine the main estimand.
+FORMAL_STAGE_ORDER = ["stage00_quality", "stage01_canonical", "stage02_activity",
+                      "stage03_calibration_events", "stage04_sensitivity", "stage05_h1",
+                      "stage06_h2", "stage07_h3", "stage08_h4", "stage09_robustness",
+                      "stage10_paper"]
 CORE_STAGE_ORDER = ["preflight", "audit", "panels", "canonicalSignals", "baseline", "calibrate",
                     "expB", "paperAnalysis", "figures", "validate"]
 SUPPLEMENTAL_STAGE_ORDER = ["sensorPanels", "features", "expF", "expD"]
-STAGE_ORDER = ["preflight", "audit", "panels", "canonicalSignals", "baseline", "calibrate", "expB",
-               "paperAnalysis", "sensorPanels", "features", "expF", "expD", "figures", "validate"]
+LEGACY_STAGE_ORDER = ["preflight", "audit", "panels", "canonicalSignals", "baseline", "calibrate", "expB",
+                      "paperAnalysis", "sensorPanels", "features", "expF", "expD", "figures", "validate"]
+STAGE_ORDER = FORMAL_STAGE_ORDER + LEGACY_STAGE_ORDER
 
 
 def completed(cfg, stage: str) -> bool:
@@ -45,6 +50,13 @@ def execute(stage: str, cfg):
     if stage == "preflight":
         from uresil import preflight as m
         return m.run(cfg)
+    if stage == "stage00_quality":
+        from uresil import stage00_quality as m
+        return m.run(cfg)
+    if stage in FORMAL_STAGE_ORDER[1:]:
+        raise RuntimeError(
+            f"{stage} is not implemented as a formal frozen stage yet; refusing to fall back to legacy outputs"
+        )
     if stage == "audit":
         from uresil import audit as m
         return m.run(cfg)
@@ -136,7 +148,7 @@ def main():
     ap.add_argument("--config", default=None)
     ap.add_argument("--run-id", default=None, help="Stable run identifier; required to resume the same run")
     ap.add_argument("--mode", choices=["real", "demo"], default="real")
-    ap.add_argument("--stage", nargs="+", default=["all"], choices=STAGE_ORDER + ["all"])
+    ap.add_argument("--stage", nargs="+", default=None, choices=STAGE_ORDER + ["all"])
     ap.add_argument("--resume", action="store_true")
     ap.add_argument("--force", action="store_true")
     ap.add_argument("--clean-run", action="store_true", help="Delete this run directory before starting")
@@ -144,6 +156,10 @@ def main():
 
     cfg = load_config(args.config, run_id=args.run_id, mode=args.mode)
     cfg.raw.setdefault("_runtime_flags", {})["force_stage_recompute"] = bool(args.force)
+    if args.stage is None or args.stage == ["all"]:
+        raise SystemExit("Formal runs require exactly one explicit --stage; --stage all is forbidden")
+    if any(s in FORMAL_STAGE_ORDER for s in args.stage) and len(args.stage) != 1:
+        raise SystemExit("Formal runs accept exactly one stage per invocation")
     if args.stage == ["all"]:
         # H1--H4 are the default paper run.  ExpF/ExpD are explicitly
         # supplemental and cannot delay the core observational results.
@@ -151,12 +167,13 @@ def main():
         stages = STAGE_ORDER if run_supplemental else CORE_STAGE_ORDER
     else:
         stages = args.stage
-    if stages and stages[0] != "preflight":
+    if stages and stages[0] not in FORMAL_STAGE_ORDER and stages[0] != "preflight":
         stages = ["preflight"] + [x for x in stages if x != "preflight"]
     # This must precede mapping auto-freeze and every analytical query. It uses
     # raw timestamps plus Unix epoch only; outage labels never enter inference.
     assert_timestamp_contract_before_any_experiment_query(cfg)
-    auto_freeze_mapping_if_needed(cfg, stages=stages, resume=args.resume)
+    if not any(x in FORMAL_STAGE_ORDER for x in stages):
+        auto_freeze_mapping_if_needed(cfg, stages=stages, resume=args.resume)
     if args.clean_run and cfg.run_base.exists():
         shutil.rmtree(cfg.run_base)
         cfg.run_base.mkdir(parents=True)
@@ -196,7 +213,7 @@ def main():
         return
 
     assert_real_output(cfg)
-    if stages and stages[0] != "preflight" and not completed(cfg, "preflight"):
+    if stages and stages[0] not in FORMAL_STAGE_ORDER and stages[0] != "preflight" and not completed(cfg, "preflight"):
         stages = ["preflight"] + stages
     for stage in stages:
         if args.resume and not args.force and completed(cfg, stage):
