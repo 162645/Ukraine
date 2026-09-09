@@ -271,7 +271,12 @@ def _render_figures(cfg: Config, root: Path, scored: pd.DataFrame, states: list[
     def marks(ax):
         for t in anchors:
             i = int(np.argmin([abs((x - t).total_seconds()) for x in times])); ax.axvline(i, color="#111", lw=.5, ls=(0, (2, 2))); ax.plot(i, 1.01, marker="v", ms=3, color="#111", transform=ax.get_xaxis_transform(), clip_on=False)
-    def arr(col): return scored.pivot(index="admin1", columns="measure_time", values=col).reindex(index=states, columns=times).to_numpy(dtype=float)
+    def arr(col):
+        # Nullable pandas columns retain ``pd.NA`` for incomplete cycles.  Keep
+        # those cells as NaN so matplotlib can render them as the explicit
+        # missing-data color instead of coercing a nullable array directly.
+        frame = scored.pivot(index="admin1", columns="measure_time", values=col).reindex(index=states, columns=times)
+        return frame.astype("float64").to_numpy()
     outs = []
     def heat(col, stem, fid, label, vmin=.4, vmax=1.2):
         prefix = col.split("_")[0]; src = root / "figure_data" / f"{stem}.csv"; mean_col = f"{prefix}_7d_mean"; count_col = f"{prefix.lower()}_baseline_cycle_n"; scored[["measure_time", "admin1", "cycle_complete", col, mean_col, count_col]].to_csv(src, index=False, encoding="utf-8-sig")
