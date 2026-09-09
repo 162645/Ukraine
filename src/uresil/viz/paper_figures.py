@@ -149,7 +149,12 @@ def render(cfg, lang="en"):
     if not d.empty and {"rel_h", "reach", "sensitivity_quintile"}.issubset(d.columns):
         fig, ax = plt.subplots(figsize=(cfg.figures["double_column_width_in"], 3.2))
         for q, g in d.groupby("sensitivity_quintile", dropna=False):
-            g = g.sort_values("rel_h"); ax.plot(g.rel_h, g.reach, marker="o", ms=2.5, lw=1.0, label=str(q))
+            # Event rows are first averaged within event by paper_analysis;
+            # this final mean gives every registered attack equal weight.
+            g = (g.groupby("rel_h", as_index=False)
+                   .agg(reach=("reach", "mean"), event_n=("event_id", "nunique") if "event_id" in g else ("reach", "size"))
+                   .sort_values("rel_h"))
+            ax.plot(g.rel_h, g.reach, marker="o", ms=2.5, lw=1.0, label=str(q))
         ax.axvline(0, color="0.35", ls="--", lw=.8); ax.axhline(1, color="0.35", ls=":", lw=.8); ax.set_xlabel("Hours relative to attack"); ax.set_ylabel("Reachability ratio"); ax.legend(frameon=False, ncol=5)
         outputs += _save(fig, cfg, "fig09_q1_q5_event_curves", src, "Event-aligned sensitivity-quintile curves with separate baselines and a t=0 anchor.")
     for stem, (xc, yc, xl, yl) in generic_specs.items():

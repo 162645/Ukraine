@@ -196,9 +196,11 @@ def run(cfg: Config) -> dict:
     min_train = int(cfg.prediction.get("min_train_events", 2))
     potential_prediction_holdouts = max(0, registered_attacks - min_train)
     required_prediction_holdouts = int(cfg.prediction.get("min_test_events_for_claim", 3))
+    # The confirmatory paper chain is descriptive H1--H4.  Historical
+    # prospective-prediction capacity is reported for audit purposes only and
+    # must never turn the core preflight into a prediction gate.
     capacity_ok = (registered_valid >= required_valid and
-                   registered_valid_clusters >= required_valid_clusters and
-                   potential_prediction_holdouts >= required_prediction_holdouts)
+                   registered_valid_clusters >= required_valid_clusters)
     checks.append({
         "check": "registered_core_closure_capacity", "ok": capacity_ok, "required": False,
         "detail": {
@@ -207,31 +209,41 @@ def run(cfg: Config) -> dict:
                                                 "required": required_valid,
                                                 "independent_publication_clusters": registered_valid_clusters,
                                                 "required_clusters": required_valid_clusters},
-            "prospective_prediction_holdouts_upper_bound": {
+            "legacy_prediction_capacity_not_a_core_gate": {
                 "registered_attack_events": registered_attacks,
                 "after_minimum_training_events": potential_prediction_holdouts,
                 "required": required_prediction_holdouts,
             },
-            "interpretation": ("Registry can support the configured closure counts if data windows pass."
+            "interpretation": ("Registry can support the configured H1-H4 closure counts if data windows pass; "
+                               "legacy prediction capacity is informational only."
                                if capacity_ok else
-                               "Even perfect execution cannot satisfy every configured publication-count gate; "
+                               "Even perfect execution cannot satisfy the configured H1-H4 publication-count gate; "
                                "add independently registered evidence or expect YELLOW_INCOMPLETE_CORE_EVIDENCE."),
         },
     })
 
-    # Fail before a multi-hour database run if a confirmatory model dependency is
-    # missing.  Experiment D has a documented NumPy fallback, but statsmodels is
-    # still required for the preregistered clustered model and variance components.
+    # Core H1--H4 is a descriptive measurement pipeline.  ML/matching and
+    # statsmodels packages belong only to opt-in supplemental stages and must
+    # not be a prerequisite for the main run.
     dep_versions = {}
     dep_errors = []
-    for module in ("numpy", "pandas", "scipy", "sklearn", "statsmodels", "pyarrow", "matplotlib"):
+    for module in ("numpy", "pandas", "scipy", "pyarrow", "matplotlib"):
         try:
             mod = __import__(module)
             dep_versions[module] = getattr(mod, "__version__", "unknown")
         except Exception as exc:  # noqa: BLE001
             dep_errors.append(f"{module}: {type(exc).__name__}: {exc}")
+    optional_versions, optional_errors = {}, []
+    for module in ("sklearn", "statsmodels"):
+        try:
+            mod = __import__(module)
+            optional_versions[module] = getattr(mod, "__version__", "unknown")
+        except Exception as exc:  # noqa: BLE001
+            optional_errors.append(f"{module}: {type(exc).__name__}: {exc}")
     checks.append({"check": "scientific_dependencies", "ok": not dep_errors,
-                   "detail": {"versions": dep_versions, "errors": dep_errors}})
+                   "detail": {"core_versions": dep_versions, "core_errors": dep_errors,
+                              "optional_supplemental_versions": optional_versions,
+                              "optional_supplemental_errors": optional_errors}})
 
     try:
         font_report = cjk_font_report(cfg)

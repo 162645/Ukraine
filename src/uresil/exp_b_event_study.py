@@ -1,4 +1,10 @@
-"""Experiment B — stage-aware held-out attack validation.
+"""Experiment B — frozen-label observational attack characterization.
+
+The default entry point does not train a predictor or perform treated/control
+matching.  It computes held-out attack IPS curves for ALL, Activity deciles,
+sensitivity quintiles, and their joint strata.  The historical stage-aware
+matching implementation remains below behind ``exp_b.legacy_full`` for audit
+reproduction only.
 
 v2.4 fixes the most important causal-design error exposed by the real run:
 attack start, outage implementation, and externally observed network onset are

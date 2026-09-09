@@ -23,15 +23,10 @@ from uresil.provenance import (assert_real_output, init_or_resume_manifest, mark
                                read_manifest)
 from uresil.time_contract import measurement_time_contract
 
-# Keep ClickHouse-backed acquisition as early as dependencies permit.  expE is
-# the sole later database stage: its query prefix set is defined by the local
-# features + expB matching outputs, so moving it earlier would change the
-# scientific sample rather than merely changing execution order.
-# The paper's confirmatory chain is H1--H4: frozen labels/panels -> group
-# features -> independent attack application (Exp B) -> paper tables.  The
-# historical external-validation/recovery-debt stages remain available, but
-# must not delay production of the core tables or be mistaken for the main
-# estimand.
+# The paper's confirmatory chain is H1--H4: frozen labels -> independent
+# attack application (Exp B) -> paper tables.  Historical sensor-panel,
+# prediction and recovery-debt stages remain available as explicit
+# supplemental diagnostics, but never delay or redefine the main estimand.
 CORE_STAGE_ORDER = ["preflight", "audit", "panels", "canonicalSignals", "baseline", "calibrate",
                     "expB", "paperAnalysis", "figures", "validate"]
 SUPPLEMENTAL_STAGE_ORDER = ["sensorPanels", "features", "expF", "expD"]

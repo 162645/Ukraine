@@ -382,11 +382,25 @@ def run(cfg) -> dict:
                 _write(cov, fd / "fig01_oblast_coverage.csv")
         else:
             _write(pd.DataFrame(columns=["target_admin1", "total_mapped_ip", "activity_estimable_ip", "sensitivity_ip", "sensitivity_support3_ip"]), fd / "fig01_oblast_coverage.csv")
-        event_curve = _read(rt / "f4_event_study.csv")
-        _write(event_curve if not event_curve.empty else pd.DataFrame(columns=["rel_h", "effect"]), fd / "fig09_q1_q5_event_curves.csv")
+        # Figure 9 is the held-out Q1--Q5 attack characterization, not the
+        # legacy generic event-study renderer.  Keep event/state rows in the
+        # source table, but make the aggregation contract explicit so the
+        # renderer can average states within event and then events equally.
         sens_curve = _read(rt / "exp_b_sensitivity_curves.csv")
-        if not sens_curve.empty:
-            _write(sens_curve, fd / "fig09_q1_q5_event_curves.csv")
+        if not sens_curve.empty and {"rel_h", "IPS_ratio", "group_type", "sensitivity_group"}.issubset(sens_curve.columns):
+            qcurve = sens_curve[sens_curve.group_type.astype(str).eq("S_REACH")].copy()
+            qcurve = qcurve.rename(columns={"IPS_ratio": "reach", "sensitivity_group": "sensitivity_quintile"})
+            qcurve["sensitivity_quintile"] = qcurve.sensitivity_quintile.astype(str)
+            # One row is one event × relative cycle × quintile after state
+            # averaging.  Plotting code performs the final event-equal mean.
+            keys = [c for c in ("event_id", "rel_h", "sensitivity_quintile") if c in qcurve.columns]
+            qcurve = (qcurve.groupby(keys, dropna=False)
+                      .agg(reach=("reach", "mean"), state_n=("admin1", "nunique"))
+                      .reset_index())
+            _write(qcurve, fd / "fig09_q1_q5_event_curves.csv")
+        else:
+            event_curve = _read(rt / "f4_event_study.csv")
+            _write(event_curve if not event_curve.empty else pd.DataFrame(columns=["rel_h", "effect"]), fd / "fig09_q1_q5_event_curves.csv")
         _write(_read(rt / "attack_continuous_sensitivity_association.csv"), fd / "fig13_h3_continuous_association.csv")
         _write(_read(rt / "f5_state_time.csv"), fd / "fig16_as_event_timeline.csv")
         cycle_quality = _read(rt / "cycle_quality.csv")
