@@ -772,7 +772,8 @@ def _recovery_time(rel_h: pd.Series, ratio: pd.Series, *, nadir_h: float,
 
 
 def _lightweight_event_curves(cfg: Config, event: pd.Series, denom: pd.DataFrame,
-                              parts: list[str], ch: CHClient) -> dict[str, pd.DataFrame]:
+                              parts: list[str], ch: CHClient,
+                              sensors: pd.DataFrame | None = None) -> dict[str, pd.DataFrame]:
     """Build state×cycle×group rows without the legacy /24 Cartesian panel."""
     ev = Events(cfg); lo, hi = ev.event_window(event)
     baseline_days = max(0, int(cfg.raw.get("group_ips", {}).get("baseline_days", 7)))
@@ -782,7 +783,7 @@ def _lightweight_event_curves(cfg: Config, event: pd.Series, denom: pd.DataFrame
         ["cycle_id", "measure_time"]].drop_duplicates()
     if cycles.empty:
         return {}
-    numer = _event_responses(cfg, ch, event, parts)
+    numer = _event_responses(cfg, ch, event, parts, sensors=sensors)
     if numer.empty:
         return {}
     treated = Events.treated_admin1(event); out = {}
@@ -942,8 +943,13 @@ def _observational_group_analysis_lightweight(cfg: Config) -> dict:
         denom.to_parquet(denom_path, index=False)
     cycle_h = float(cfg.study["expected_cycle_interval_hours"]); curves = []; metrics = []; assoc = []
     with CHClient(cfg) as ch:
+        # The frozen label table is immutable across held-out attacks.  Load
+        # it once; re-reading and re-merging millions of labels per event was
+        # pure I/O overhead and did not change the estimand.
+        from .sensor_panels import load_sensor_labels
+        sensor_labels = load_sensor_labels(cfg, parts)
         for _, event in ev.attacks.iterrows():
-            light = _lightweight_event_curves(cfg, event, denom, parts, ch)
+            light = _lightweight_event_curves(cfg, event, denom, parts, ch, sensors=sensor_labels)
             for method, group_type in (("ALL", "ALL"), ("ACTIVITY", "ACTIVITY"),
                                        ("S_REACH", "S_REACH"), ("ACTIVITY_S_REACH", "ACTIVITY_S_REACH")):
                 g = light.get(method, pd.DataFrame()).copy()

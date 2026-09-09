@@ -191,7 +191,26 @@ def build_denominators(cfg: Config, parts: list[str]) -> pd.DataFrame:
     return out
 
 
-def _event_responses(cfg: Config, ch: CHClient, event: pd.Series, parts: list[str]) -> pd.DataFrame:
+def load_sensor_labels(cfg: Config, parts: list[str]) -> pd.DataFrame:
+    """Load the frozen endpoint membership once for all held-out events."""
+    membership = _calibrated_membership(cfg)
+    frames = []
+    cols = ["dst_ip", "prefix24", "target_asn", "target_country", "target_admin1",
+            "network_stratum", "activity_score_raw", "activity_score_smoothed",
+            "activity_estimable", "activity_score_raw", "activity_decile", "in_B1", "in_B2",
+            "regional_eligible"]
+    for p in pbar(parts, desc="load frozen sensor labels", unit="part"):
+        d = _read_sensor_part(cfg, p, cols, membership=membership)
+        d = d[d.in_ALL | d.in_B1 | d.in_B2 | d.in_ACTIVITY | d.in_S_REACH | d.in_S_RTT]
+        if not d.empty:
+            frames.append(d)
+    if not frames:
+        return pd.DataFrame()
+    return pd.concat(frames, ignore_index=True).drop_duplicates(["dst_ip", "prefix24"])
+
+
+def _event_responses(cfg: Config, ch: CHClient, event: pd.Series, parts: list[str],
+                     sensors: pd.DataFrame | None = None) -> pd.DataFrame:
     logger = get_logger(cfg.out_dir("logs"))
     ev = Events(cfg)
     lo, hi = ev.event_window(event)
@@ -208,15 +227,15 @@ def _event_responses(cfg: Config, ch: CHClient, event: pd.Series, parts: list[st
     # part separately repeats the same ClickHouse scan and made the compact
     # observational ExpB unnecessarily slow.
     membership = _calibrated_membership(cfg)
-    sensor_frames = []
-    for p in pbar(parts, desc=f"load sensor labels {event['event_id']}", unit="part"):
-        sensors = _read_sensor_part(cfg, p, cols, membership=membership)
-        sensors = sensors[sensors.in_ALL | sensors.in_B1 | sensors.in_B2 | sensors.in_ACTIVITY | sensors.in_S_REACH | sensors.in_S_RTT]
-        if not sensors.empty:
-            sensor_frames.append(sensors)
-    if not sensor_frames:
+    if sensors is None:
+        sensors = load_sensor_labels(cfg, parts)
+    if sensors.empty:
         return pd.DataFrame(columns=["cycle_id", "analysis_unit_id", "method", "responders", "rtt_median"])
-    sensors = pd.concat(sensor_frames, ignore_index=True).drop_duplicates(["dst_ip", "prefix24"])
+    treated = Events.treated_admin1(event)
+    if treated and treated != ["ALL"] and str(event.scope_type).lower() != "national":
+        sensors = sensors[sensors.target_admin1.astype(str).isin(set(treated))].copy()
+    if sensors.empty:
+        return pd.DataFrame(columns=["cycle_id", "analysis_unit_id", "method", "responders", "rtt_median"])
     prefixes = sensors.prefix24.drop_duplicates().astype(str).tolist()
     response_frames = []
     for start in range(0, len(prefixes), 5000):
