@@ -105,7 +105,7 @@ WITH latest AS (
   ORDER BY prefix24, n DESC, country, region LIMIT 1 BY prefix24
 ), base AS (
   SELECT toStartOfInterval(p.measure_time, INTERVAL 2 HOUR) AS measure_time,
-         p.dst_ip, p.prefix24, l.country AS ip_country, l.region AS ip_region,
+         p.dst_ip, p.prefix24 AS block_prefix24, l.country AS ip_country, l.region AS ip_region,
          pm.country AS prefix_country, pm.region AS prefix_region
   FROM {ping} p INNER JOIN latest l ON p.dst_ip = l.ip
   LEFT JOIN prefix_modal pm ON pm.prefix24 = p.prefix24
@@ -113,14 +113,14 @@ WITH latest AS (
     AND p.measure_time < toDateTime64('{hi}', 6, 'UTC') AND p.dst_ip != '' AND p.prefix24 != ''
     AND l.country IN ({aliases}) AND toStartOfInterval(p.measure_time, INTERVAL 2 HOUR) IN ({times})
 ), eligible AS (
-  SELECT toStartOfMonth(measure_time) AS month, prefix24 FROM base GROUP BY month, prefix24 HAVING countDistinct(dst_ip) >= 3
+  SELECT toStartOfMonth(measure_time) AS month, block_prefix24 FROM base GROUP BY month, block_prefix24 HAVING countDistinct(dst_ip) >= 3
 ), ips AS (
   SELECT measure_time, ip_country, ip_region, countDistinct(dst_ip) AS IPS FROM base GROUP BY measure_time, ip_country, ip_region
 ), active_blocks AS (
-  SELECT DISTINCT measure_time, prefix24, prefix_country, prefix_region FROM base
+  SELECT DISTINCT measure_time, block_prefix24, prefix_country, prefix_region FROM base
 ), fbs AS (
   SELECT a.measure_time, a.prefix_country AS fbs_country, a.prefix_region AS fbs_region, countDistinct(a.prefix24) AS FBS
-  FROM active_blocks a INNER JOIN eligible e ON e.month = toStartOfMonth(a.measure_time) AND e.prefix24 = a.prefix24
+  FROM active_blocks a INNER JOIN eligible e ON e.month = toStartOfMonth(a.measure_time) AND e.block_prefix24 = a.block_prefix24
   WHERE a.prefix_country IN ({aliases}) GROUP BY a.measure_time, a.prefix_country, a.prefix_region
 )
 SELECT i.measure_time, i.ip_country AS country, i.ip_region AS region, i.IPS, coalesce(f.FBS, 0) AS FBS
