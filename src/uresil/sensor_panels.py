@@ -228,7 +228,7 @@ def _event_responses(cfg: Config, ch: CHClient, event: pd.Series, parts: list[st
                     z["sensitivity_stratum"] = (z["s_rtt_quintile"] if "s_rtt_quintile" in z else z["s_rtt_tier"]).astype(str)
                 z["group"] = (z.network_stratum.astype(str) + "|" + z.target_asn.astype(str) + "|" + z.target_country.astype(str)
                               + "|" + z.target_admin1.astype(str) + "|" + z.sensitivity_stratum.astype(str))
-                z["analysis_unit_id"] = z.prefix24.astype(str) + "|" + z.group
+                z["analysis_unit_id"] = z.prefix24.astype(str) + "|" + z.group.astype(str)
                 key = ["cycle_id", "prefix24", "target_asn", "target_country", "target_admin1", "network_stratum",
                        "sensitivity_stratum", "group", "analysis_unit_id"]
                 num.append(z.groupby(key).agg(

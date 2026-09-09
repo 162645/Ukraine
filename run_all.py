@@ -32,11 +32,11 @@ from uresil.time_contract import measurement_time_contract
 # historical external-validation/recovery-debt stages remain available, but
 # must not delay production of the core tables or be mistaken for the main
 # estimand.
-CORE_STAGE_ORDER = ["preflight", "audit", "panels", "canonicalSignals", "baseline", "calibrate", "sensorPanels",
-                    "features", "expB", "paperAnalysis", "figures", "validate"]
-SUPPLEMENTAL_STAGE_ORDER = ["expF", "expD"]
-STAGE_ORDER = ["preflight", "audit", "panels", "canonicalSignals", "baseline", "calibrate", "sensorPanels",
-               "features", "expB", "paperAnalysis", "expF", "expD", "figures", "validate"]
+CORE_STAGE_ORDER = ["preflight", "audit", "panels", "canonicalSignals", "baseline", "calibrate",
+                    "expB", "paperAnalysis", "figures", "validate"]
+SUPPLEMENTAL_STAGE_ORDER = ["sensorPanels", "features", "expF", "expD"]
+STAGE_ORDER = ["preflight", "audit", "panels", "canonicalSignals", "baseline", "calibrate", "expB",
+               "paperAnalysis", "sensorPanels", "features", "expF", "expD", "figures", "validate"]
 
 
 def completed(cfg, stage: str) -> bool:

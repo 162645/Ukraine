@@ -25,13 +25,15 @@ from scipy.stats import linregress, norm, t as student_t
 from sklearn.neighbors import NearestNeighbors
 
 from .config import Config, file_sha256
+from .db import CHClient
 from .event_design import (EventEstimand, build_estimands, clean_baseline_interval,
                            primary_estimand, stage_for_time)
 from .events import Events
 from .features import event_features_for_series
 from .progress import HeartbeatProgress, get_logger, pbar, step
 from .provenance import source_tree_sha256
-from .sensor_panels import choose_primary_method
+from .sensor_panels import (_event_responses, build_denominators, choose_primary_method,
+                            score_parts)
 from .stats import block_bootstrap_mean
 
 INVALID_ADMIN1 = {"COUNTRY_ONLY_UA", "UNKNOWN_ADMIN1", "UNMAPPED_UA_ADMIN1"}
@@ -763,6 +765,51 @@ def _recovery_time(rel_h: pd.Series, ratio: pd.Series, *, nadir_h: float,
     return np.nan, 1
 
 
+def _lightweight_event_curves(cfg: Config, event: pd.Series, denom: pd.DataFrame,
+                              parts: list[str], ch: CHClient) -> dict[str, pd.DataFrame]:
+    """Build state×cycle×group rows without the legacy /24 Cartesian panel."""
+    ev = Events(cfg); lo, hi = ev.event_window(event)
+    baseline_days = max(0, int(cfg.raw.get("group_ips", {}).get("baseline_days", 7)))
+    grid = ev.build_cycle_grid(pd.read_parquet(cfg.out_dir("data_derived") / "cycle_quality.parquet"))
+    cycles = grid[(grid.is_complete.astype(bool)) &
+                  grid.measure_time.between(lo - pd.Timedelta(days=baseline_days), hi)][
+        ["cycle_id", "measure_time"]].drop_duplicates()
+    if cycles.empty:
+        return {}
+    numer = _event_responses(cfg, ch, event, parts)
+    if numer.empty:
+        return {}
+    treated = Events.treated_admin1(event); out = {}
+    for method, group_type in (("ALL", "ALL"), ("ACTIVITY", "ACTIVITY"),
+                               ("S_REACH", "S_REACH"), ("ACTIVITY_S_REACH", "ACTIVITY_S_REACH")):
+        dm = denom[(denom.method.eq(method)) & denom.regional_eligible.eq(1)].copy()
+        if treated and treated != ["ALL"] and str(event.scope_type).lower() != "national":
+            dm = dm[dm.target_admin1.astype(str).isin(set(treated))]
+        if dm.empty:
+            continue
+        dm["sensitivity_group"] = dm.get("sensitivity_stratum", "all").astype(str)
+        groups = (dm.groupby(["target_admin1", "sensitivity_group"], dropna=False)
+                    .agg(eligible_ip_n=("sensor_n", "sum"), expected_response_n=("expected_response_n", "sum"))
+                    .reset_index().rename(columns={"target_admin1": "admin1"}))
+        nr = numer[numer.method.eq(method)].copy()
+        if nr.empty:
+            continue
+        nr["sensitivity_group"] = nr.get("sensitivity_stratum", "all").astype(str)
+        nr = nr.merge(cycles, on="cycle_id", how="inner")
+        obs = (nr.groupby(["measure_time", "target_admin1", "sensitivity_group"], dropna=False)
+                 .agg(IPS=("responders", "sum")).reset_index()
+                 .rename(columns={"target_admin1": "admin1"}))
+        skeleton = groups.assign(_k=1).merge(cycles.assign(_k=1), on="_k").drop(columns="_k")
+        g = skeleton.merge(obs, on=["measure_time", "admin1", "sensitivity_group"], how="left")
+        g["IPS"] = pd.to_numeric(g.IPS, errors="coerce").fillna(0).astype("int64")
+        g["group_type"] = group_type; g["event_id"] = str(event.event_id)
+        g["event_family"] = str(event.event_family)
+        g["rel_h"] = (pd.to_datetime(g.measure_time, utc=True) - Events.anchor_time(event)).dt.total_seconds() / 3600.0
+        g = _strict_prior_ratio(g)
+        out[method] = g[(g.measure_time >= lo) & (g.measure_time <= hi)].copy()
+    return out
+
+
 def _observational_group_analysis(cfg: Config) -> dict:
     """Run the confirmatory attack analysis as frozen-label characterization.
 
@@ -877,13 +924,86 @@ def _observational_group_analysis(cfg: Config) -> dict:
             "metric_rows": int(len(metric_df)), "model_training": False}
 
 
+def _observational_group_analysis_lightweight(cfg: Config) -> dict:
+    """Same H1--H4 summaries using the compact ClickHouse response panel."""
+    rt = cfg.out_dir("results_tables"); ev = Events(cfg)
+    parts = score_parts(cfg)
+    if not parts:
+        raise RuntimeError("Experiment A score parts are required for lightweight ExpB")
+    denom_path = cfg.out_dir("data_derived") / "sensor_denominators.parquet"
+    denom = pd.read_parquet(denom_path) if denom_path.exists() else build_denominators(cfg, parts)
+    if not denom_path.exists():
+        denom.to_parquet(denom_path, index=False)
+    cycle_h = float(cfg.study["expected_cycle_interval_hours"]); curves = []; metrics = []; assoc = []
+    with CHClient(cfg) as ch:
+        for _, event in ev.attacks.iterrows():
+            light = _lightweight_event_curves(cfg, event, denom, parts, ch)
+            for method, group_type in (("ALL", "ALL"), ("ACTIVITY", "ACTIVITY"),
+                                       ("S_REACH", "S_REACH"), ("ACTIVITY_S_REACH", "ACTIVITY_S_REACH")):
+                g = light.get(method, pd.DataFrame()).copy()
+                if g.empty:
+                    continue
+                g["ips_outage"] = g.IPS_ratio.lt(float(cfg.raw.get("macro_signals", {}).get("ips_outage_ratio", .90)))
+                curves.append(g)
+                for (admin1, group), q in g[g.rel_h.ge(0)].groupby(["admin1", "sensitivity_group"], dropna=False):
+                    q = q.dropna(subset=["IPS_ratio"]).sort_values("rel_h")
+                    if q.empty: continue
+                    nadir = q.loc[q.IPS_ratio.idxmin()]
+                    t90, censored = _recovery_time(q.rel_h, q.IPS_ratio, nadir_h=float(nadir.rel_h))
+                    loss = (q.IPS_7d_mean * (1 - q.IPS_ratio).clip(lower=0)).sum()
+                    metrics.append({"event_id": str(event.event_id), "admin1": admin1, "group_type": group_type,
+                                    "sensitivity_group": str(group), "ip_n": float(q.eligible_ip_n.median()),
+                                    "peak_drop": float(max(0, 1 - q.IPS_ratio.min())),
+                                    "outage_hours": float(q.ips_outage.sum() * cycle_h),
+                                    "recovery_time_h": t90, "recovery_censored": censored,
+                                    "ips_loss": float(loss), "support_cycles": int(len(q))})
+                if method == "S_REACH":
+                    for admin1, q in g[g.rel_h.ge(0)].groupby("admin1"):
+                        v = q.dropna(subset=["IPS_ratio"]).groupby("sensitivity_group").apply(lambda z: max(0, 1-z.IPS_ratio.min()))
+                        v.index = pd.to_numeric(v.index.astype(str).str.extract(r"(\d+)")[0], errors="coerce")
+                        v = v.dropna()
+                        if len(v) >= 3:
+                            assoc.append({"event_id": str(event.event_id), "admin1": admin1,
+                                          "sensitivity_metric": "S_REACH", "attack_outcome": "peak_drop_group_gradient",
+                                          "n_groups": int(len(v)), "slope_per_quintile": float(np.polyfit(v.index.astype(float), v.values, 1)[0]),
+                                          "spearman_rho": float(v.index.to_series().corr(v, method="spearman"))})
+    curve_df = pd.concat(curves, ignore_index=True) if curves else pd.DataFrame()
+    metric_df = pd.DataFrame(metrics)
+    decomp = []
+    if not metric_df.empty:
+        for _, z in metric_df.groupby(["event_id", "admin1", "group_type"], dropna=False):
+            z = z.copy(); den = z.ips_loss.sum(); z["population_share"] = z.ip_n / z.ip_n.sum()
+            z["loss_contribution"] = z.ips_loss / den if den > 0 else np.nan
+            z["over_contribution_ratio"] = z.loss_contribution / z.population_share.replace(0, np.nan); decomp.append(z)
+    decomp_df = pd.concat(decomp, ignore_index=True) if decomp else pd.DataFrame()
+    all_curve = curve_df[curve_df.group_type.eq("ALL")] if not curve_df.empty else pd.DataFrame()
+    f4 = all_curve.rename(columns={"IPS_ratio": "reach", "group_type": "sensor_method"}) if not all_curve.empty else pd.DataFrame()
+    f5 = all_curve.rename(columns={"IPS_ratio": "reach_dev"}) if not all_curve.empty else pd.DataFrame()
+    qcurves = curve_df[curve_df.group_type.ne("ALL")] if not curve_df.empty else pd.DataFrame()
+    outputs = {"f4_event_study.csv": f4, "f5_state_time.csv": f5,
+               "f6_fingerprint.csv": f4.groupby("rel_h", as_index=False).reach.mean() if not f4.empty else pd.DataFrame(),
+               "exp_b_main_results.csv": metric_df, "exp_b_estimand_results.csv": metric_df,
+               "exp_b_sensitivity_curves.csv": qcurves,
+               "exp_b_state_sensitivity_validation.csv": metric_df[metric_df.group_type.eq("S_REACH")] if not metric_df.empty else pd.DataFrame(),
+               "attack_state_sensitivity_validation.csv": metric_df[metric_df.group_type.eq("S_REACH")] if not metric_df.empty else pd.DataFrame(),
+               "attack_continuous_sensitivity_association.csv": pd.DataFrame(assoc),
+               "attack_recovery_validation.csv": metric_df[[c for c in metric_df.columns if c in {"event_id", "admin1", "group_type", "sensitivity_group", "recovery_time_h", "recovery_censored"}]] if not metric_df.empty else pd.DataFrame(),
+               "exp_b_loss_decomposition.csv": decomp_df}
+    for name in ("exp_b_matches.csv", "exp_b_anchor_sensitivity.csv", "exp_b_placebo.csv", "exp_b_method_sensitivity.csv", "exp_b_target_universe_sensitivity.csv", "exp_b_matching_balance.csv"):
+        outputs[name] = pd.DataFrame(columns=["status", "note"])
+    for name, frame in outputs.items(): frame.to_csv(rt / name, index=False, encoding="utf-8-sig")
+    return {"status": "ok", "outputs": [str(rt / name) for name in outputs], "analysis": "frozen_label_observational_lightweight", "event_n": int(metric_df.event_id.nunique()) if not metric_df.empty else 0, "metric_rows": len(metric_df), "model_training": False}
+
+
 def run(cfg: Config) -> dict:
     # The confirmatory paper pipeline is descriptive/observational.  The old
     # matching + placebo + prediction implementation remains below for
     # reproducibility only and can be explicitly requested with
     # ``exp_b.legacy_full: true``.
-    if not bool(cfg.raw.get("exp_b", {}).get("legacy_full", False)):
-        return _observational_group_analysis(cfg)
+    expcfg = cfg.raw.get("exp_b", {})
+    if not bool(expcfg.get("legacy_full", False)):
+        return (_observational_group_analysis_lightweight(cfg)
+                if bool(expcfg.get("lightweight", True)) else _observational_group_analysis(cfg))
     logger = get_logger(cfg.out_dir("logs")); rt = cfg.out_dir("results_tables")
     ev = Events(cfg); seed = int(cfg.runtime["random_seed"]); primary_method = choose_primary_method(cfg)
     attack_rows = list(ev.attacks.iterrows())

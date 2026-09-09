@@ -307,6 +307,7 @@ simple_calibration:
 # labels.  The old matching/placebo/prediction implementation is opt-in only.
 exp_b:
   legacy_full: false
+  lightweight: true
 group_ips:
   baseline_days: 7
 
