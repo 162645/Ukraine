@@ -39,7 +39,7 @@ from .features import event_features_for_series
 from .progress import HeartbeatProgress, get_logger, pbar, step
 from .provenance import source_tree_sha256
 from .sensor_panels import (_event_responses, build_denominators, choose_primary_method,
-                            score_parts)
+                            score_parts, _cache_signature)
 from .stats import block_bootstrap_mean
 
 INVALID_ADMIN1 = {"COUNTRY_ONLY_UA", "UNKNOWN_ADMIN1", "UNMAPPED_UA_ADMIN1"}
@@ -947,9 +947,8 @@ def _observational_group_analysis_lightweight(cfg: Config) -> dict:
         raise RuntimeError("Experiment A score parts are required for lightweight ExpB")
     denom_path = cfg.out_dir("data_derived") / "sensor_denominators.parquet"
     label_path = cfg.out_dir("results_tables") / "b1_full_sensitivity_labels.parquet"
-    sig_payload = {"labels": [label_path.stat().st_size, label_path.stat().st_mtime_ns] if label_path.exists() else None,
-                   "parts": [[Path(p).name, Path(p).stat().st_size, Path(p).stat().st_mtime_ns] for p in parts]}
-    denom_signature = hashlib.sha256(json.dumps(sig_payload, sort_keys=True).encode()).hexdigest()
+    denom_signature = _cache_signature(cfg, kind="sensor_denominators",
+                                       label_path=label_path, parts=parts)
     sig_path = denom_path.with_suffix(".signature")
     force = bool(cfg.raw.get("_runtime_flags", {}).get("force_stage_recompute", False))
     valid_cache = (denom_path.exists() and sig_path.exists() and

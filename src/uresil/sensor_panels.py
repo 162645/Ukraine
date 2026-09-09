@@ -75,6 +75,47 @@ def score_parts(cfg: Config) -> list[str]:
     return sorted(glob.glob(str(cfg.out_dir("data_derived") / "ip_sensor_scores_parts" / "part_*.parquet")))
 
 
+def _cache_signature(cfg: Config, *, kind: str, label_path: Path,
+                     parts: list[str]) -> str:
+    """Fingerprint every input that can change frozen sensor membership.
+
+    A cache keyed only by its output path can silently reuse denominators after
+    a calibration/config/code change.  The runtime ``force`` flag is excluded
+    deliberately: it invalidates a cache for the current call, but must not
+    make the rebuilt artifact unstable on the next call.
+    """
+    raw = {k: v for k, v in cfg.raw.items() if k != "_runtime_flags"}
+
+    def file_meta(path: Path) -> dict:
+        if not path.exists():
+            return {"path": str(path), "exists": False}
+        st = path.stat()
+        return {"path": str(path), "size": st.st_size, "mtime_ns": st.st_mtime_ns}
+
+    def source_digest(path: Path) -> str | None:
+        if not path.exists():
+            return None
+        return hashlib.sha256(path.read_bytes()).hexdigest()
+
+    payload = {
+        "schema": "frozen-sensor-cache-v4",
+        "kind": kind,
+        "config": raw,
+        "labels": file_meta(label_path),
+        "parts": [file_meta(Path(p)) for p in parts],
+        # Changes in label construction or panel membership logic must force
+        # a rebuild even when an old output happens to retain the same size and
+        # timestamp (for example after an interrupted restore).
+        "code": {
+            "sensor_panels": source_digest(Path(__file__)),
+            "simple_calibration": source_digest(Path(__file__).with_name("simple_calibration.py")),
+            "exp_b_event_study": source_digest(Path(__file__).with_name("exp_b_event_study.py")),
+        },
+    }
+    encoded = json.dumps(payload, ensure_ascii=False, sort_keys=True, default=str).encode()
+    return hashlib.sha256(encoded).hexdigest()
+
+
 def _calibrated_membership(cfg: Config) -> pd.DataFrame:
     # Activity deciles and the formal support>=3 estimability flags are added
     # to the full label table after calibrated_sensors is aggregated.  Reading
@@ -136,30 +177,12 @@ def _read_sensor_part(cfg: Config, path: str, columns: list[str], membership: pd
         membership = _calibrated_membership(cfg)
     if not attach:
         return d
-    d = _attach_membership(d, membership)
     # Sensitivity remains continuous; no attack-informed or thresholded B2 set
-    # is allowed to become the primary analysis sample.
-    # The formal endpoint population is the common, activity-estimable target
-    # universe *within a mapped Ukrainian oblast*.  Country-only/unknown
-    # mappings remain useful for acquisition diagnostics but cannot enter the
-    # state-level H1--H4 estimand.
-    activity_col = d["activity_estimable"] if "activity_estimable" in d else d.get(
-        "in_B1", pd.Series(False, index=d.index))
-    activity_ok = activity_col.fillna(False).astype(bool)
-    regional_ok = d.get("regional_eligible", pd.Series(1, index=d.index)).fillna(0).astype(bool)
-    d["in_ALL"] = activity_ok & regional_ok
-    d["in_ACTIVITY"] = d["in_ALL"].astype(bool) & d.get(
-        "activity_decile", pd.Series(pd.NA, index=d.index)).notna()
-    d["in_B2"] = False
-    reach_group = d.get("s_reach_quintile", d.get("s_reach_tier", pd.Series(pd.NA, index=d.index)))
-    rtt_group = d.get("s_rtt_quintile", d.get("s_rtt_tier", pd.Series(pd.NA, index=d.index)))
-    # H2 uses the preregistered primary estimability contract, not merely the
-    # presence of a provisional quintile computed from one or two episodes.
-    primary_ok = d.get("primary_estimable", pd.Series(False, index=d.index)).fillna(False).astype(bool)
-    d["in_S_REACH"] = d["in_ALL"].astype(bool) & primary_ok & reach_group.notna()
-    d["in_S_RTT"] = d["in_ALL"].astype(bool) & primary_ok & rtt_group.notna()
-    d["in_ACTIVITY_S_REACH"] = d["in_ACTIVITY"].astype(bool) & primary_ok & reach_group.notna()
-    return d
+    # is allowed to become the primary analysis sample.  The formal endpoint
+    # population is the common activity-estimable target universe within a
+    # mapped Ukrainian oblast.  Keep all membership derivation in one helper
+    # so the per-part and consolidated-label paths cannot drift apart.
+    return _attach_membership(d, membership)
 
 
 def choose_primary_method(cfg: Config) -> str:
@@ -214,9 +237,8 @@ def load_sensor_labels(cfg: Config, parts: list[str]) -> pd.DataFrame:
     sig_path = cache.with_suffix(".signature")
     membership = _calibrated_membership(cfg)
     label_path = cfg.out_dir("results_tables") / "b1_full_sensitivity_labels.parquet"
-    sig_payload = {"labels": [label_path.stat().st_size, label_path.stat().st_mtime_ns] if label_path.exists() else None,
-                   "parts": [[Path(p).name, Path(p).stat().st_size, Path(p).stat().st_mtime_ns] for p in parts]}
-    signature = hashlib.sha256(json.dumps(sig_payload, sort_keys=True).encode()).hexdigest()
+    signature = _cache_signature(cfg, kind="frozen_sensor_labels",
+                                 label_path=label_path, parts=parts)
     if cache.exists() and sig_path.exists() and sig_path.read_text(encoding="utf-8").strip() == signature:
         return pd.read_parquet(cache)
     frames = []
