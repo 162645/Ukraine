@@ -22,7 +22,7 @@ CORE_ATTACKS = ["E2024_0826_ATTACK", "E2024_0917_SUMY", "E2024_1117_ATTACK",
 
 def _git_commit(root: Path) -> str | None:
     try:
-        return subprocess.check_output(["git", "-C", str(root), "rev-parse", "HEAD"], text=True, stderr=subprocess.DEVNULL).strip()
+        return subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=str(root), text=True, stderr=subprocess.DEVNULL).strip()
     except Exception:
         return None
 

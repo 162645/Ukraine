@@ -107,7 +107,7 @@ def _write_metadata(root: Path, name: str, *, figure_id: str, source_csv: Path,
 def _git_commit(root: Path) -> str | None:
     import subprocess
     try:
-        return subprocess.check_output(["git", "-C", str(root), "rev-parse", "HEAD"],
+        return subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=str(root),
                                        text=True, stderr=subprocess.DEVNULL).strip()
     except Exception:
         return None

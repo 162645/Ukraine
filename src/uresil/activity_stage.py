@@ -34,7 +34,7 @@ def _root(cfg: Config) -> Path:
 
 def _git_commit(root: Path) -> str | None:
     try:
-        return subprocess.check_output(["git", "-C", str(root), "rev-parse", "HEAD"], text=True).strip()
+        return subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=str(root), text=True).strip()
     except Exception:
         return None
 

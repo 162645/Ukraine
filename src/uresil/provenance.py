@@ -22,10 +22,10 @@ from .config import Config, file_sha256
 
 def _git_commit(root: Path) -> str | None:
     try:
+        # Git 1.8 on the remote host does not support the modern ``git -C``
+        # option.  cwd keeps manifest generation portable.
         return subprocess.check_output(
-            ["git", "-C", str(root), "rev-parse", "HEAD"],
-            stderr=subprocess.DEVNULL,
-            text=True,
+            ["git", "rev-parse", "HEAD"], cwd=str(root), stderr=subprocess.DEVNULL, text=True
         ).strip()
     except Exception:
         return None
