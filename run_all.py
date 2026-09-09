@@ -66,6 +66,9 @@ def execute(stage: str, cfg):
     if stage == "stage03_5_episode_audit":
         from uresil import episode_audit_stage as m
         return m.run(cfg)
+    if stage == "stage04_sensitivity":
+        from uresil import sensitivity_stage as m
+        return m.run(cfg)
     if stage in FORMAL_STAGE_ORDER[2:]:
         raise RuntimeError(
             f"{stage} is not implemented as a formal frozen stage yet; refusing to fall back to legacy outputs"
