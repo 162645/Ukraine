@@ -95,7 +95,7 @@ def _calibrated_membership(cfg: Config) -> pd.DataFrame:
     return d[cols].drop_duplicates("dst_ip")
 
 
-def _read_sensor_part(cfg: Config, path: str, columns: list[str]) -> pd.DataFrame:
+def _read_sensor_part(cfg: Config, path: str, columns: list[str], membership: pd.DataFrame | None = None) -> pd.DataFrame:
     try:
         d = pd.read_parquet(path, columns=columns)
     except (KeyError, ValueError):
@@ -109,7 +109,8 @@ def _read_sensor_part(cfg: Config, path: str, columns: list[str]) -> pd.DataFram
             d["activity_score_raw"] = pd.to_numeric(d.get("pN", 0), errors="coerce")
         if "activity_score_smoothed" not in d:
             d["activity_score_smoothed"] = d["activity_score_raw"]
-    membership = _calibrated_membership(cfg)
+    if membership is None:
+        membership = _calibrated_membership(cfg)
     d = d.drop(columns=["in_B2"], errors="ignore")
     d = d.merge(membership, on="dst_ip", how="left", validate="many_to_one")
     # Sensitivity remains continuous; no attack-informed or thresholded B2 set
@@ -206,9 +207,10 @@ def _event_responses(cfg: Config, ch: CHClient, event: pd.Series, parts: list[st
     # Consolidate frozen membership before querying.  Querying each parquet
     # part separately repeats the same ClickHouse scan and made the compact
     # observational ExpB unnecessarily slow.
+    membership = _calibrated_membership(cfg)
     sensor_frames = []
     for p in pbar(parts, desc=f"load sensor labels {event['event_id']}", unit="part"):
-        sensors = _read_sensor_part(cfg, p, cols)
+        sensors = _read_sensor_part(cfg, p, cols, membership=membership)
         sensors = sensors[sensors.in_ALL | sensors.in_B1 | sensors.in_B2 | sensors.in_ACTIVITY | sensors.in_S_REACH | sensors.in_S_RTT]
         if not sensors.empty:
             sensor_frames.append(sensors)
