@@ -8,6 +8,8 @@ prefix's responders from being duplicated across groups.
 from __future__ import annotations
 
 import glob
+import hashlib
+import json
 
 import numpy as np
 import pandas as pd
@@ -193,7 +195,16 @@ def build_denominators(cfg: Config, parts: list[str]) -> pd.DataFrame:
 
 def load_sensor_labels(cfg: Config, parts: list[str]) -> pd.DataFrame:
     """Load the frozen endpoint membership once for all held-out events."""
+    dd = cfg.out_dir("data_derived")
+    cache = dd / "frozen_sensor_labels.parquet"
+    sig_path = cache.with_suffix(".signature")
     membership = _calibrated_membership(cfg)
+    label_path = cfg.out_dir("results_tables") / "b1_full_sensitivity_labels.parquet"
+    sig_payload = {"labels": [label_path.stat().st_size, label_path.stat().st_mtime_ns] if label_path.exists() else None,
+                   "parts": [[Path(p).name, Path(p).stat().st_size, Path(p).stat().st_mtime_ns] for p in parts]}
+    signature = hashlib.sha256(json.dumps(sig_payload, sort_keys=True).encode()).hexdigest()
+    if cache.exists() and sig_path.exists() and sig_path.read_text(encoding="utf-8").strip() == signature:
+        return pd.read_parquet(cache)
     frames = []
     cols = ["dst_ip", "prefix24", "target_asn", "target_country", "target_admin1",
             "network_stratum", "activity_score_raw", "activity_score_smoothed",
@@ -206,7 +217,10 @@ def load_sensor_labels(cfg: Config, parts: list[str]) -> pd.DataFrame:
             frames.append(d)
     if not frames:
         return pd.DataFrame()
-    return pd.concat(frames, ignore_index=True).drop_duplicates(["dst_ip", "prefix24"])
+    out = pd.concat(frames, ignore_index=True).drop_duplicates(["dst_ip", "prefix24"])
+    out.to_parquet(cache, index=False)
+    sig_path.write_text(signature, encoding="utf-8")
+    return out
 
 
 def _event_responses(cfg: Config, ch: CHClient, event: pd.Series, parts: list[str],
