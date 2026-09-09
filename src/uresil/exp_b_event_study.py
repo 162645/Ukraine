@@ -874,7 +874,7 @@ def _observational_group_analysis(cfg: Config) -> dict:
                                 "ips_loss": float(loss), "support_cycles": int(len(q))})
             if method == "S_REACH":
                 for admin1, q in g[g.rel_h.ge(0)].groupby("admin1"):
-                    qq = q.dropna(subset=["IPS_ratio"]).groupby("sensitivity_group").peak_drop.mean()
+                    qq = q.dropna(subset=["IPS_ratio"]).groupby("sensitivity_group")["IPS_ratio"].min().rsub(1.0).clip(lower=0)
                     order = {f"Q{i}": i for i in range(1, 6)}
                     v = qq.rename(index=order).dropna()
                     if len(v) >= 3:

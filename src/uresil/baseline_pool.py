@@ -55,12 +55,13 @@ def run(cfg: Config) -> dict:
     outdir = dd / "ip_sensor_scores_parts"
     outdir.mkdir(parents=True, exist_ok=True)
     outputs = []
+    force = bool(cfg.raw.get("_runtime_flags", {}).get("force_stage_recompute", False))
     cycle_seconds = int(cfg.study["expected_cycle_interval_hours"] * 3600)
     with step("Build label-free stable endpoint pool", logger):
         with CHClient(cfg) as ch:
             for index, prefix_batch in pbar(list(enumerate(batches)), desc="baseline batches", unit="batch"):
                 path = outdir / f"part_{index:05d}.parquet"
-                if path.exists() and path.stat().st_size:
+                if path.exists() and path.stat().st_size and not force:
                     outputs.append(str(path))
                     continue
                 sql = S.render("12_ip_baseline_reach", ping=cfg.table("ping"),
