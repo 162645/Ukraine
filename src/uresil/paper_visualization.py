@@ -43,7 +43,7 @@ STATE_ZH = {
     "Kyiv City": "基辅市", "Kyiv Oblast": "基辅州", "Luhansk Oblast": "卢甘斯克州", "Lviv Oblast": "利沃夫州",
     "Mykolaiv Oblast": "尼古拉耶夫州", "Odesa Oblast": "敖德萨州", "Poltava Oblast": "波尔塔瓦州",
     "Rivne Oblast": "罗夫诺州", "Sevastopol": "塞瓦斯托波尔", "Sumy Oblast": "苏梅州", "Ternopil Oblast": "捷尔诺波尔州",
-    "Transcarpathia Oblast": "外喀尔巴阡州", "Vinnytsia Oblast": "文尼察州", "Volyn Oblast": "沃伦州",
+    "Transcarpathia Oblast": "外喀尔巴阡州", "Zakarpattia Oblast": "外喀尔巴阡州", "Vinnytsia Oblast": "文尼察州", "Volyn Oblast": "沃伦州",
     "Zaporizhzhia Oblast": "扎波罗热州", "Zhytomyr Oblast": "日托米尔州",
 }
 
