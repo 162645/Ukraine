@@ -423,7 +423,15 @@ def _figures(cfg: Config, out: Path, events: list[str], evsum: pd.DataFrame,
     stem = figdir / "H1-4_cross_event_repeatability"; _write_figure(fig, stem); paths += [str(stem.with_suffix(x)) for x in (".png", ".pdf", ".svg")]
     # H1-5: aggregate IPS drop vs endpoint distribution.
     fig, a = plt.subplots(figsize=(5.4, 3.8)); x = es.aggregate_ips_drop.to_numpy(float); yv = es.median_drop.to_numpy(float); lo = yv - es.p25_drop.to_numpy(float); hi = es.p75_drop.to_numpy(float) - yv; a.errorbar(x, yv, yerr=[lo, hi], fmt="o", color="#4C78A8", ecolor="#4C78A8", capsize=3); 
-    for label, xx, yy in zip([x.replace("E2024_", "") for x in es.index], x, yv): a.annotate(label, (xx, yy), xytext=(4, 4), textcoords="offset points", fontsize=7)
+    short = {"E2024_0826_ATTACK": "08-26", "E2024_0917_SUMY": "09-17 Sumy",
+             "E2024_1117_ATTACK": "11-17", "E2024_1128_ATTACK": "11-28",
+             "E2024_1213_ATTACK": "12-13", "E2024_1225_ATTACK": "12-25"}
+    offsets = [(4, 12), (4, 28), (4, 44), (4, -24), (4, -10), (4, 58)]
+    for i, (label, xx, yy) in enumerate(zip(es.index, x, yv)):
+        a.annotate(short.get(label, label), (xx, yy), xytext=offsets[i],
+                   textcoords="offset points", fontsize=7,
+                   arrowprops={"arrowstyle": "-", "lw": .5, "color": "0.45"},
+                   bbox={"boxstyle": "round,pad=0.12", "fc": "white", "ec": "none", "alpha": .85})
     a.axline((0, 0), slope=1, color="0.6", ls="--", lw=.8); a.set_xlabel("aggregate IPS drop"); a.set_ylabel("endpoint median reach drop (IQR)"); a.set_title("H1-5 Aggregate IPS loss does not determine the endpoint distribution")
     stem = figdir / "H1-5_aggregate_vs_endpoint_distribution"; _write_figure(fig, stem); paths += [str(stem.with_suffix(x)) for x in (".png", ".pdf", ".svg")]
     return paths
