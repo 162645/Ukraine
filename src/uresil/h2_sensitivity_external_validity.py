@@ -209,11 +209,21 @@ def _event_effects(x: pd.DataFrame) -> tuple[pd.DataFrame, dict]:
         rho = spearmanr(z["sensitivity"], z["reach_drop"]).statistic if len(z) >= 3 and z["sensitivity"].nunique() > 1 and z["reach_drop"].nunique() > 1 else np.nan
         e = float(q5 - q1) if np.isfinite(q1) and np.isfinite(q5) else np.nan
         direction = "POSITIVE" if e > 1e-12 else ("NEGATIVE" if e < -1e-12 else "NEUTRAL") if np.isfinite(e) else "NOT_ESTIMABLE"
+        # State-level bootstrap for the per-event effect (the event itself is
+        # fixed here; no IP-level p-value is used).
+        wide = g.pivot_table(index="target_admin1", columns="quintile", values="mean").dropna(subset=["Q1", "Q5"])
+        rng = np.random.default_rng(SEED + 100 + len(rows)); boots=[]
+        if len(wide):
+            for _ in range(1000):
+                z = wide.iloc[rng.integers(0, len(wide), size=len(wide))]
+                boots.append(float((z["Q5"] - z["Q1"]).mean()))
         rows.append({"event_id": event, "q1_mean_drop": q1, "q5_mean_drop": q5, "q5_q1_mean_effect": e,
                      "q1_median_drop": m1, "q5_median_drop": m5,
                      "q5_q1_median_effect": float(m5 - m1) if np.isfinite(m1) and np.isfinite(m5) else np.nan,
                      "spearman_rho": rho, "direction": direction,
-                     "state_n_with_q1_q5": int(g.groupby("event_id").size().iloc[0])})
+                     "state_n_with_q1_q5": int(len(wide)),
+                     "effect_ci_low": float(np.quantile(boots,.025)) if boots else np.nan,
+                     "effect_ci_high": float(np.quantile(boots,.975)) if boots else np.nan})
     return pd.DataFrame(rows), {"state_event": se}
 
 
@@ -257,7 +267,8 @@ def _figures(out: Path, se: pd.DataFrame, effects: pd.DataFrame, cont_bins: pd.D
     ax.legend(frameon=False, fontsize=8); ax.grid(axis="y", alpha=.2); fig.tight_layout(); _savefig(fig, fd / "H2-1_quintile_gradient")
     # H2-2 event effects.
     fig, ax = plt.subplots(figsize=(7, 4.2)); e = effects.sort_values("event_id"); y=np.arange(len(e));
-    ax.axvline(0,color="0.35",lw=.8); ax.errorbar(e.q5_q1_mean_effect,y,fmt="o",color="#b2182b"); ax.set_yticks(y,e.event_id); ax.set_xlabel("Q5 − Q1 mean reach-drop (state equal)"); ax.set_title("Q5 − Q1 effect by held-out attack"); ax.grid(axis="x",alpha=.2); fig.tight_layout(); _savefig(fig, fd / "H2-2_event_effects")
+    lo=np.maximum(0, e.q5_q1_mean_effect-e.effect_ci_low); hi=np.maximum(0, e.effect_ci_high-e.q5_q1_mean_effect)
+    ax.axvline(0,color="0.35",lw=.8); ax.errorbar(e.q5_q1_mean_effect,y,xerr=np.vstack([lo,hi]),fmt="o",color="#b2182b",capsize=3); ax.set_yticks(y,e.event_id); ax.set_xlabel("Q5 − Q1 mean reach-drop (state equal)"); ax.set_title("Q5 − Q1 effect by held-out attack (95% CI)"); ax.grid(axis="x",alpha=.2); fig.tight_layout(); _savefig(fig, fd / "H2-2_event_effects")
     # H2-3 binned curve (state/event aggregation, not raw scatter).
     fig, ax = plt.subplots(figsize=(6.5, 4.2))
     if not cont_bins.empty:
@@ -265,7 +276,7 @@ def _figures(out: Path, se: pd.DataFrame, effects: pd.DataFrame, cont_bins: pd.D
         ax.plot(z.sensitivity,z.reach_drop,marker="o",color="#762a83");
     ax.axhline(0,color="0.35",lw=.8); ax.set(xlabel="Frozen continuous Sensitivity $S_i$",ylabel="Mean reach drop",title="Continuous Sensitivity and war-attack reach loss"); ax.grid(alpha=.2); fig.tight_layout(); _savefig(fig, fd / "H2-3_continuous_sensitivity")
     # H2-4 severe risk.
-    sr=x.assign(severe=x.reach_drop>=.25).groupby("quintile",observed=True).severe.mean().reindex(QUINTILES)
+    sr=(se.assign(severe025=se["frac_ge025"]).groupby("quintile",observed=True)["severe025"].mean().reindex(QUINTILES))
     fig, ax = plt.subplots(figsize=(6.5,4.2)); ax.plot(QUINTILES,sr,color="#d7301f",marker="o",lw=2); ax.set(xlabel="Frozen Sensitivity quintile",ylabel="Pr(reach drop ≥ 0.25)",title="Severe reach degradation risk by Sensitivity quintile"); ax.grid(axis="y",alpha=.2); fig.tight_layout(); _savefig(fig, fd / "H2-4_severe_risk")
     # H2-5 heatmap.
     h=se.pivot_table(index="event_id",columns="quintile",values="mean",aggfunc="mean").reindex(columns=QUINTILES)
@@ -284,7 +295,7 @@ def _report(out: Path, panel: Panel, x: pd.DataFrame, se: pd.DataFrame, effects:
     elif monotonic and directions >= 4 and effect > 0 and np.isfinite(rho) and rho > 0: verdict = "SUPPORTED"
     elif directions >= 3 and effect > 0: verdict = "PARTIALLY_SUPPORTED"
     else: verdict = "NOT_SUPPORTED"
-    lines=[f"# H2 Sensitivity External Validity Report", "", f"Run: `{run_id}`", "", "## Scope", "", "Only the six frozen held-out war attacks are in the core analysis. H2 reuses the frozen H1 outcome artifact and frozen Stage 4/4.5 Sensitivity scores; it does not query ClickHouse, alter events, or control for Activity. Results are association/external validity, not causation.", "", "## Main panel", "", f"- Label: `{panel.label}`; valid war-outcome IPs: **{len(x):,}**; states: **{x.target_admin1.nunique()}**; events: **{x.event_id.nunique()}**.", f"- State-wise/event-equal Q5−Q1 mean effect: **{effect:.4f}** (95% CI {lo:.4f}, {hi:.4f}).", f"- Q5/Q1 severe-drop risk ratio (drop ≥0.25): **{rr25[0]:.3f}** (95% CI {rr25[1]:.3f}, {rr25[2]:.3f}).", f"- Q5/Q1 severe-drop risk ratio (drop ≥0.50): **{rr50[0]:.3f}** (95% CI {rr50[1]:.3f}, {rr50[2]:.3f}).", f"- Q5 > Q1 in **{directions}/{len(effects)}** events; monotonic Q1→Q5: **{monotonic}**; event-equal Spearman mean: **{rho:.4f}**.", "", "## Quintile summary", "", "```", pd.DataFrame({"quintile":QUINTILES,"mean_drop":qmeans.values,"median_drop":qmed.values}).to_string(index=False), "```", "", "## Event consistency", "", "```", effects.to_string(index=False), "```", "", "## Frozen robustness", "", "```", robust.to_string(index=False), "```", "", f"## H2 verdict: **{verdict}**", "", "The verdict combines monotonicity, effect magnitude, event direction consistency, continuous association, and frozen robustness. It is not based on IP-level naive p-values. Activity summaries are descriptive only; H3 is not run.", "", "## Run boundary", "", "H3 and H4 were not run. H1 was not rerun or modified. No planned-outage registry or war-event definition was changed.", ""]
+    lines=[f"# H2 Sensitivity External Validity Report", "", f"Run: `{run_id}`", "", "## Scope", "", "Only the six frozen held-out war attacks are in the core analysis. H2 reuses the frozen H1 outcome artifact and frozen Stage 4/4.5 Sensitivity scores; it does not query ClickHouse, alter events, or control for Activity. Results are association/external validity, not causation.", "", "## Main panel", "", f"- Label: `{panel.label}`; valid war-outcome endpoint rows: **{len(x):,}**; unique IPs: **{x.dst_ip.nunique():,}**; states: **{x.target_admin1.nunique()}**; events: **{x.event_id.nunique()}**.", f"- State-wise/event-equal Q5−Q1 mean effect: **{effect:.4f}** (95% CI {lo:.4f}, {hi:.4f}).", f"- Q5/Q1 severe-drop risk ratio (drop ≥0.25): **{rr25[0]:.3f}** (95% CI {rr25[1]:.3f}, {rr25[2]:.3f}).", f"- Q5/Q1 severe-drop risk ratio (drop ≥0.50): **{rr50[0]:.3f}** (95% CI {rr50[1]:.3f}, {rr50[2]:.3f}).", f"- Q5 > Q1 in **{directions}/{len(effects)}** events; monotonic Q1→Q5: **{monotonic}**; event-equal Spearman mean: **{rho:.4f}**.", "", "## Quintile summary", "", "```", pd.DataFrame({"quintile":QUINTILES,"mean_drop":qmeans.values,"median_drop":qmed.values}).to_string(index=False), "```", "", "## Event consistency", "", "```", effects.to_string(index=False), "```", "", "## Frozen robustness", "", "```", robust.to_string(index=False), "```", "", f"## H2 verdict: **{verdict}**", "", "The verdict combines monotonicity, effect magnitude, event direction consistency, continuous association, and frozen robustness. It is not based on IP-level naive p-values. Activity summaries are descriptive only; H3 is not run.", "", "## Run boundary", "", "H3 and H4 were not run. H1 was not rerun or modified. No planned-outage registry or war-event definition was changed.", ""]
     (out/"H2_SENSITIVITY_EXTERNAL_VALIDITY_REPORT.md").write_text("\n".join(lines),encoding="utf-8")
     return verdict
 
@@ -303,19 +314,20 @@ def run(run_id: str, root: Path, h1_dir: Path, stage45: Path, stage4: Path, git_
     se.to_csv(out/"h2_state_event_summary.csv",index=False)
     # Main quintile summary includes event-equal state summaries and activity diagnostics.
     qs = se.groupby("quintile",observed=True).agg(ip_n=("n","sum"), mean_reach_drop=("mean","mean"), median_reach_drop=("median","mean"), p25=("p25","mean"), p75=("p75","mean"), frac_gt0=("frac_gt0","mean"), frac_ge010=("frac_ge010","mean"), frac_ge025=("frac_ge025","mean"), frac_ge050=("frac_ge050","mean"), activity_mean=("activity_mean","mean"), activity_median=("activity_median","mean"), state_event_cells=("mean","size")).reindex(QUINTILES).reset_index()
+    qs["unique_ip_n"] = qs["quintile"].map(main.groupby("quintile", observed=True)["dst_ip"].nunique())
     qs.to_csv(out/"h2_main_quintile_summary.csv",index=False); effects.to_csv(out/"h2_event_effects.csv",index=False); cont.to_csv(out/"h2_continuous_sensitivity.csv",index=False)
-    severe=main.assign(severe025=main.reach_drop>=.25,severe050=main.reach_drop>=.50).groupby(["event_id","quintile"],observed=True).agg(ip_n=("dst_ip","size"), severe025_prob=("severe025","mean"), severe050_prob=("severe050","mean")).reset_index(); severe.to_csv(out/"h2_severe_drop_risk.csv",index=False)
+    severe=se.groupby(["event_id","quintile"],observed=True).agg(ip_n=("n","sum"), severe025_prob=("frac_ge025","mean"), severe050_prob=("frac_ge050","mean")).reset_index(); severe.to_csv(out/"h2_severe_drop_risk.csv",index=False)
     # Robustness one-row summaries, with the same event/state-equal metrics.
     rrows=[]
     for k in ["A","B","C","D"]:
         z=panel_rows[k]; se_z=_state_event_summary(z); eff_z, _=_event_effects(z); c_z,_=_continuous(z); ci_z=_bootstrap_effect(z); rr_z=_bootstrap_risk_ratio(z,.25)
-        rrows.append({"panel":k,"label":PANELS[k].label,"valid_ip_n":len(z),"state_n":z.target_admin1.nunique(),"event_n":z.event_id.nunique(),"q5_q1_mean_effect":ci_z[0],"q5_q1_ci_low":ci_z[1],"q5_q1_ci_high":ci_z[2],"severe_rr025":rr_z[0],"severe_rr025_ci_low":rr_z[1],"severe_rr025_ci_high":rr_z[2],"event_equal_spearman":c_z.spearman_rho.mean() if not c_z.empty else np.nan,"positive_event_n":int((eff_z.direction=="POSITIVE").sum()),"event_direction_n":len(eff_z)})
+        rrows.append({"panel":k,"label":PANELS[k].label,"valid_endpoint_rows":len(z),"valid_ip_n":z.dst_ip.nunique(),"state_n":z.target_admin1.nunique(),"event_n":z.event_id.nunique(),"q5_q1_mean_effect":ci_z[0],"q5_q1_ci_low":ci_z[1],"q5_q1_ci_high":ci_z[2],"severe_rr025":rr_z[0],"severe_rr025_ci_low":rr_z[1],"severe_rr025_ci_high":rr_z[2],"event_equal_spearman":c_z.spearman_rho.mean() if not c_z.empty else np.nan,"positive_event_n":int((eff_z.direction=="POSITIVE").sum()),"event_direction_n":len(eff_z)})
     robust=pd.DataFrame(rrows); robust.to_csv(out/"h2_robustness_summary.csv",index=False)
     _figures(out,se,effects,bins,main)
     verdict=_report(out,PANELS["MAIN"],main,se,effects,cont,robust,main_ci,rr25,rr50,run_id)
     # Intermediate panel data are parquet, never giant CSVs.
     for k,z in panel_rows.items(): z.to_parquet(out/f"h2_ip_level_{k.lower()}.parquet",index=False)
-    manifest={"stage":"H2_SENSITIVITY_EXTERNAL_VALIDITY","run_id":run_id,"git_commit":git_commit,"random_seed":SEED,"main_label":PANELS["MAIN"].label,"main_expected_sensitivity_population":{"ip_n":700012,"state_n":17},"main_valid_war_outcome_ip_n":int(len(main),),"main_valid_state_n":int(main.target_admin1.nunique()),"main_event_n":int(main.event_id.nunique()),"final_sensitivity_freeze_version":"final_sensitivity_freeze_v1_augmented_strict_support3","war_event_registry_version":"frozen_core_6_heldout_attacks","h1_artifact":str(h1_dir),"stage45_artifact":str(stage45),"stage4_artifact":str(stage4),"h2_verdict":verdict,"h3_h4_run":False,"h1_rerun":False,"figures":[str(p.name) for p in (_figure_dir(out)).glob("H2-*.png")]}
+    manifest={"stage":"H2_SENSITIVITY_EXTERNAL_VALIDITY","run_id":run_id,"git_commit":git_commit,"random_seed":SEED,"main_label":PANELS["MAIN"].label,"main_expected_sensitivity_population":{"ip_n":700012,"state_n":17},"main_valid_endpoint_rows":int(len(main)),"main_valid_war_outcome_ip_n":int(main.dst_ip.nunique()),"main_valid_state_n":int(main.target_admin1.nunique()),"main_event_n":int(main.event_id.nunique()),"final_sensitivity_freeze_version":"final_sensitivity_freeze_v1_augmented_strict_support3","war_event_registry_version":"frozen_core_6_heldout_attacks","h1_artifact":str(h1_dir),"stage45_artifact":str(stage45),"stage4_artifact":str(stage4),"h2_verdict":verdict,"h3_h4_run":False,"h1_rerun":False,"figures":[str(p.name) for p in (_figure_dir(out)).glob("H2-*.png")]}
     (out/"h2_manifest.json").write_text(json.dumps(manifest,indent=2),encoding="utf-8")
     return {"output_dir":str(out),"verdict":verdict,"main_ip_n":len(main),"main_state_n":int(main.target_admin1.nunique()),"effects":effects.to_dict("records"),"manifest":manifest}
 
