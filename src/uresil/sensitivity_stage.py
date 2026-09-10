@@ -141,9 +141,6 @@ def _prepare_reused_inputs(cfg: Config) -> Path:
     universe and Activity sufficient statistics are reused without copying or
     mutating them.  The candidate/sensitivity outputs are written locally.
     """
-    dd = cfg.out_dir("data_derived")
-    if (dd / "target_ip_universe.parquet").exists() and (dd / "stage02_activity_parts").exists():
-        return cfg.run_base
     provenance = cfg.raw.get("stage4_provenance", {})
     source_name = str(provenance.get("stage2_source_run", "")).strip()
     if not source_name:
@@ -155,6 +152,9 @@ def _prepare_reused_inputs(cfg: Config) -> Path:
     src = source / "data_derived"
     if not (src / "target_ip_universe.parquet").exists() or not (src / "stage02_activity_parts").exists():
         raise FileNotFoundError(f"Frozen Stage 2 source is incomplete: {source}")
+    dd = cfg.out_dir("data_derived")
+    # A resumed Stage 4 run may already contain symlinks.  They do not change
+    # provenance: always return the explicitly configured source run.
     for name in ("target_ip_universe.parquet",):
         link, target = dd / name, source / "data_derived" / name
         if not link.exists(): link.symlink_to(target)
