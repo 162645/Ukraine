@@ -210,6 +210,14 @@ def run(cfg: Config) -> dict:
     results = {p: _audit_panel(weak, strict, p, root) for p in ("primary", "augmented")}
     rows = [r["metrics"] for r in results.values()]
     pd.DataFrame(rows).to_csv(root / "tables" / "stage4_5_coverage_comparison.csv", index=False, encoding="utf-8-sig")
+    pd.concat([r["state"] for r in results.values()], ignore_index=True).to_csv(
+        root / "tables" / "stage4_5_state_stability.csv", index=False, encoding="utf-8-sig")
+    transitions = []
+    for panel, r in results.items():
+        z = r["matrix"].copy(); z.index.name = "weak_quintile"; z.columns.name = "strict_quintile"
+        z = z.stack().rename("ip_n").reset_index(); z.insert(0, "panel", panel); transitions.append(z)
+    pd.concat(transitions, ignore_index=True).to_csv(
+        root / "tables" / "stage4_5_quintile_transition.csv", index=False, encoding="utf-8-sig")
     # Combined common-IP table for convenient downstream inspection.
     common_all = pd.concat([r["common"].assign(panel=p) for p, r in results.items()], ignore_index=True)
     common_all.to_parquet(root / "tables" / "stage4_5_common_ip_sensitivity.parquet", index=False)
@@ -231,6 +239,9 @@ def run(cfg: Config) -> dict:
     lines = ["# Stage 4.5 — Sensitivity Label Robustness Audit", "", f"Run ID: `{cfg.run_id}`", "", "This is a label-side audit only. H1–H4 and all held-out war-attack outcomes were not loaded.", "", "## Exposure definitions", "", f"- WEAK: frozen Stage 4 exposure, 172 windows.", f"- STRICT: excludes {excluded_n} `STATE_PLANNED_OUTAGE_WEAK_SUPERVISION` long windows; {strict_n} windows remain.", "- Episode aggregation remains cycle-union plus episode-equal; no gap fill and no stable-Activity gate.", "", "## Coverage and stability", ""]
     for r in results.values():
         m = r["metrics"]; lines.append(f"### {r['panel'].title()}"); lines.append(f"- WEAK support≥3: **{m['weak_support_ge3_ip_n']:,} IP**; STRICT support≥3: **{m['strict_support_ge3_ip_n']:,} IP**; common formal IP: **{m['common_formal_ip_n']:,}**."); lines.append(f"- Pearson: **{m['s_weak_strict_pearson']:.4f}**; Spearman: **{m['s_weak_strict_spearman']:.4f}**; median absolute difference: **{m['median_absolute_difference']:.6f}**; P90: **{m['p90_absolute_difference']:.6f}**."); lines.append(f"- Same quintile: **{m.get('same_quintile_fraction', float('nan')):.2%}**; within ±1: **{m.get('within_one_quintile_fraction', float('nan')):.2%}**; Q1→Q5: **{m.get('q1_to_q5_count', 0)}**; Q5→Q1: **{m.get('q5_to_q1_count', 0)}**.")
+        st = r["state"]
+        lost = st.loc[st.weak_support3_n.gt(0) & st.strict_support3_n.eq(0), "target_admin1"].astype(str).tolist()
+        lines.append(f"- States with any formal WEAK support: **{int(st.weak_support3_n.gt(0).sum())}**; STRICT: **{int(st.strict_support3_n.gt(0).sum())}**. Lost support≥3 states: **{', '.join(lost) if lost else 'none'}**.")
     lines += ["", "## Decision", "", f"**{label}**", "", "This is a robustness classification only; it does not select WEAK or STRICT as the main analysis label.", "", "## Outputs", "", "Coverage, common-IP, state stability, quintile transition tables and five figure families are in `tables/` and `figures/`."]
     (root / "report" / "STAGE4_5_LABEL_ROBUSTNESS.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
     return {"status": "PASS", "label_robustness": label, "excluded_windows": excluded_n, "strict_windows": strict_n, "panels": rows, "calibration": calibration}
