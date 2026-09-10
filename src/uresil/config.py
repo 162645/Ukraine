@@ -35,6 +35,28 @@ def file_sha256(path: Path) -> str:
 
 
 @dataclass
+class CalibrationInput:
+    """The versioned planned-outage workbook used by formal Stage 3/4.
+
+    ``episode_windows`` deliberately keeps one row per frozen outage window.
+    No state-date collapse, date-contiguity inference, queue union, or new
+    episode identifier is performed here.  ``episode_id`` and ``window_id``
+    are the identifiers supplied by the workbook and are the only formal
+    calibration identities.
+    """
+
+    episode_windows: Any
+    state_coverage: Any
+    sources: Any
+    excluded: Any
+    readme: Any
+    workbook_path: Path
+    workbook_sha256: str
+    workbook_bytes: int
+    freeze_time_utc: str
+
+
+@dataclass
 class Config:
     raw: dict[str, Any]
     root: Path
@@ -277,38 +299,122 @@ class Config:
             raise ValueError("calibration event registry has duplicate state-date entries")
         return df
 
-    def load_final_calibration_input(self):
-        """Read the frozen workbook; legacy schedule rows never select v5 events."""
+    def load_final_calibration_input(self) -> CalibrationInput:
+        """Read the sole frozen planned-outage workbook.
+
+        The v2-final workbook is intentionally a five-sheet contract.  The
+        old ``final_calibration_events``/``final_calibration_segments``
+        workbook is not a fallback: accepting it here would silently restore
+        the retired date-grouping and legacy episode-ID logic.
+        """
         import pandas as pd
+        from datetime import datetime, timezone
+
         p = self.resource_path("calibration_workbook")
-        events = pd.read_excel(p, sheet_name="final_calibration_events")
-        segments = pd.read_excel(p, sheet_name="final_calibration_segments")
-        required_events = {"event_id", "state_en", "use_main", "use_augmented",
-                           "episode_id_main", "episode_id_augmented", "measurement_start_ok"}
-        required_segments = {"segment_id", "event_id", "state_en", "segment_type", "start_utc", "end_utc",
-                             "use_main", "use_augmented", "episode_id_main", "episode_id_augmented"}
-        missing = required_events.difference(events.columns) | required_segments.difference(segments.columns)
+        if not p.exists():
+            raise FileNotFoundError(f"frozen calibration workbook not found: {p}")
+        expected_sheets = {"01_EPISODES", "02_STATE_COVERAGE", "03_SOURCES", "04_EXCLUDED", "README"}
+        book = pd.ExcelFile(p)
+        missing_sheets = expected_sheets.difference(book.sheet_names)
+        if missing_sheets:
+            raise ValueError(f"v2-final calibration workbook missing sheets: {sorted(missing_sheets)}")
+        episodes = pd.read_excel(p, sheet_name="01_EPISODES")
+        coverage = pd.read_excel(p, sheet_name="02_STATE_COVERAGE")
+        sources = pd.read_excel(p, sheet_name="03_SOURCES")
+        excluded = pd.read_excel(p, sheet_name="04_EXCLUDED")
+        readme = pd.read_excel(p, sheet_name="README")
+
+        required_episodes = {
+            "episode_id", "window_id", "admin1_iso", "state", "operator",
+            "start_local", "end_local", "start_utc", "end_utc", "duration_h",
+            "evidence_level", "dataset", "event_type", "final_status", "source_id",
+        }
+        required_coverage = {
+            "admin1_iso", "state", "months_searched", "candidate_n",
+            "primary_episode_n", "augmented_episode_n", "primary_ge_3",
+            "augmented_ge_3", "first_episode", "last_episode",
+            "official_sources_checked_n", "search_status",
+        }
+        required_sources = {
+            "source_id", "episode_id", "source_role", "source_authority",
+            "publisher", "published_at", "source_url", "archive_url",
+            "language", "verified", "revision_role",
+        }
+        missing = {
+            "01_EPISODES": required_episodes.difference(episodes.columns),
+            "02_STATE_COVERAGE": required_coverage.difference(coverage.columns),
+            "03_SOURCES": required_sources.difference(sources.columns),
+        }
+        missing = {sheet: sorted(cols) for sheet, cols in missing.items() if cols}
         if missing:
-            raise ValueError(f"final calibration workbook missing columns: {sorted(missing)}")
-        # The episode-fix workbook keeps the legacy IDs for auditability and
-        # adds immutable v2 IDs used by Stage 3/4.  Older workbooks remain
-        # readable for diagnostics, but formal calibration must not silently
-        # fall back once the v2 freeze is selected.
-        plan_version = str(self.raw.get("freeze", {}).get("plan_version", ""))
-        if "episode_fix" in plan_version:
-            v2_required = {"episode_id_v2_main", "episode_id_v2_augmented"}
-            missing_v2 = v2_required.difference(events.columns) | v2_required.difference(segments.columns)
-            if missing_v2:
-                raise ValueError(f"episode-fix workbook missing columns: {sorted(missing_v2)}")
-        for d in (events, segments):
-            for c in ("use_main", "use_augmented", "measurement_start_ok"):
-                if c in d:
-                    d[c] = pd.to_numeric(d[c], errors="coerce").fillna(0).astype("int8")
-        for c in ("start_utc", "end_utc"):
-            segments[c] = pd.to_datetime(segments[c], utc=True, errors="coerce")
-        if segments[["start_utc", "end_utc"]].isna().any().any() or (segments.end_utc <= segments.start_utc).any():
-            raise ValueError("final calibration workbook contains invalid UTC segments")
-        return events, segments
+            raise ValueError(f"v2-final calibration workbook missing columns: {missing}")
+
+        episodes = episodes.copy()
+        for c in ("episode_id", "window_id", "admin1_iso", "state", "operator",
+                  "evidence_level", "dataset", "event_type", "final_status", "source_id"):
+            episodes[c] = episodes[c].fillna("").astype(str).str.strip()
+        if episodes[["episode_id", "window_id"]].eq("").any().any():
+            raise ValueError("01_EPISODES contains blank episode_id/window_id")
+        if episodes.window_id.duplicated().any():
+            dup = episodes.loc[episodes.window_id.duplicated(keep=False), "window_id"].tolist()[:10]
+            raise ValueError(f"01_EPISODES window_id must be unique; duplicates include {dup}")
+        episodes["start_utc"] = pd.to_datetime(episodes["start_utc"], utc=True, errors="coerce")
+        episodes["end_utc"] = pd.to_datetime(episodes["end_utc"], utc=True, errors="coerce")
+        if episodes[["start_utc", "end_utc"]].isna().any().any():
+            raise ValueError("01_EPISODES contains unparsable start_utc/end_utc")
+        if (episodes.end_utc <= episodes.start_utc).any():
+            raise ValueError("01_EPISODES contains non-positive UTC windows")
+        calculated_duration = (episodes.end_utc - episodes.start_utc).dt.total_seconds() / 3600.0
+        reported_duration = pd.to_numeric(episodes.duration_h, errors="coerce")
+        if reported_duration.isna().any() or (calculated_duration - reported_duration).abs().gt(1e-6).any():
+            raise ValueError("01_EPISODES duration_h disagrees with start_utc/end_utc")
+
+        study_start = pd.to_datetime(self.study["measurement_start_utc"], utc=True)
+        study_end = pd.to_datetime(self.study["end_utc"], utc=True)
+        episodes["fully_before_measurement"] = episodes.end_utc.le(study_start)
+        episodes["fully_after_measurement"] = episodes.start_utc.gt(study_end)
+        episodes["boundary_overlap"] = episodes.start_utc.lt(study_start) & episodes.end_utc.gt(study_start)
+        episodes["measurement_support_ok"] = ~episodes.fully_before_measurement & ~episodes.fully_after_measurement
+
+        evidence = episodes.evidence_level.str.upper()
+        episodes["use_primary"] = evidence.isin({"A+", "A"})
+        episodes["use_augmented"] = evidence.isin({"A+", "A", "B+", "B"})
+        expected_dataset = evidence.map(lambda x: "PRIMARY" if x in {"A+", "A"} else ("AUGMENTED" if x in {"B+", "B"} else "UNSUPPORTED"))
+        episodes["dataset_expected"] = expected_dataset
+        episodes["dataset_consistency_ok"] = expected_dataset.eq(episodes.dataset.str.upper())
+        episodes["final_status_norm"] = episodes.final_status.str.upper()
+        episodes["status_positive"] = episodes.final_status_norm.isin({"EXECUTED", "REVISED"})
+        episodes["uncertain_execution"] = episodes.final_status_norm.eq("UNCERTAIN_EXECUTION")
+        episodes["status_requires_audit"] = episodes.final_status_norm.isin({"PARTIALLY_CANCELLED", "UNCERTAIN_EXECUTION"})
+        episodes["status_excluded"] = episodes.final_status_norm.isin({"CANCELLED", "CANCELLED_BEFORE_EXECUTION"})
+        # Primary cannot be promoted by an uncertain/cancelled status.  The
+        # augmented panel retains uncertain rows for an explicit audit flag;
+        # no row is silently reclassified by the dataset column.
+        episodes["use_primary"] = episodes.use_primary & episodes.status_positive & episodes.measurement_support_ok
+        episodes["use_augmented"] = episodes.use_augmented & ~episodes.status_excluded & episodes.measurement_support_ok
+        episodes["formal_stage3_usable"] = episodes.use_primary | episodes.use_augmented
+
+        sources = sources.copy()
+        for c in ("source_id", "episode_id", "source_role", "source_authority", "publisher", "verified"):
+            sources[c] = sources[c].fillna("").astype(str).str.strip()
+        source_ids = set(sources.source_id)
+        episodes["source_fk_ok"] = episodes.source_id.isin(source_ids)
+        coverage = coverage.copy()
+        for c in ("admin1_iso", "state", "search_status"):
+            coverage[c] = coverage[c].fillna("").astype(str).str.strip()
+        excluded = excluded.copy()
+
+        return CalibrationInput(
+            episode_windows=episodes,
+            state_coverage=coverage,
+            sources=sources,
+            excluded=excluded,
+            readme=readme,
+            workbook_path=p,
+            workbook_sha256=file_sha256(p),
+            workbook_bytes=p.stat().st_size,
+            freeze_time_utc=datetime.now(timezone.utc).isoformat(),
+        )
 
     def _load_aux_registry(self, freeze_key: str, datetime_columns: tuple[str, ...]):
         import pandas as pd

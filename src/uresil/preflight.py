@@ -58,28 +58,20 @@ def validate_event_registry(cfg: Config) -> list[str]:
 
 
 def validate_final_calibration_workbook(cfg: Config) -> list[str]:
-    """Validate only the reviewed Excel P1/P2 input used by v5 calibration."""
-    events, segments = cfg.load_final_calibration_input()
+    """Validate the five-sheet v2-final workbook used by formal calibration."""
+    data = cfg.load_final_calibration_input()
+    events = data.episode_windows
     errors: list[str] = []
-    required = {"segment_id", "event_id", "state_en", "segment_type", "start_utc", "end_utc",
-                "use_main", "use_augmented", "episode_id_main", "episode_id_augmented"}
-    missing = sorted(required - set(segments.columns))
-    if missing:
-        return [f"missing columns: {missing}"]
-    if segments.segment_id.duplicated().any():
-        errors.append("duplicate segment_id")
-    if set(segments.event_id.astype(str)) - set(events.event_id.astype(str)):
-        errors.append("segments reference unknown final event")
-    cutoff = pd.to_datetime(cfg.study["measurement_start_utc"], utc=True)
-    selected = segments[segments.use_main.eq(1) | segments.use_augmented.eq(1)]
-    if selected.empty:
-        errors.append("no P1/P2 calibration segments")
-    if selected.loc[selected.segment_type.eq("outage"), "start_utc"].lt(cutoff).any():
-        errors.append("selected outage before measurement_start_utc")
-    if selected.loc[selected.use_main.eq(1), "episode_id_main"].astype(str).str.strip().eq("").any():
-        errors.append("P1 segment without episode_id_main")
-    if selected.loc[selected.use_augmented.eq(1), "episode_id_augmented"].astype(str).str.strip().eq("").any():
-        errors.append("P1/P2 segment without episode_id_augmented")
+    if events.window_id.duplicated().any():
+        errors.append("duplicate window_id")
+    if not events.source_fk_ok.all():
+        errors.append("01_EPISODES contains source_id values absent from 03_SOURCES")
+    if not events.dataset_consistency_ok.all():
+        errors.append("dataset/evidence-level consistency failure")
+    if not events.formal_stage3_usable.any():
+        errors.append("no analysis-usable outage windows")
+    if events.end_utc.le(events.start_utc).any():
+        errors.append("non-positive outage window")
     return errors
 
 

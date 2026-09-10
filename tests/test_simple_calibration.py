@@ -147,7 +147,11 @@ def test_final_workbook_is_the_direct_p1_p2_source_and_respects_measurement_star
     cfg = load_config(run_id="excel-input", mode="demo")
     events, segments = build_final_calibration_events(cfg)
     assert not events.empty
-    assert set(segments.segment_type).issubset({"outage", "explicit_clear"})
+    assert set(segments.segment_type).issubset({"outage"})
     assert (segments.start_utc >= pd.Timestamp("2024-06-22T08:00:00Z")).all()
-    assert events.use_main.sum() == 56
-    assert events.use_augmented.sum() == 123
+    assert events.window_id.is_unique
+    assert events.episode_id.nunique() == 126
+    assert events.use_primary.sum() == 86
+    assert events.use_augmented.sum() == 172
+    assert "episode_id_main" not in events.columns
+    assert "episode_id_augmented" not in events.columns

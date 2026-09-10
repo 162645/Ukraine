@@ -161,65 +161,34 @@ def build_calibration_events(schedule: pd.DataFrame,
 
 
 def build_final_calibration_events(cfg: Config, valid_admin1: set[str] | None = None) -> tuple[pd.DataFrame, pd.DataFrame]:
-    """Build frozen calibration units directly from the reviewed Excel workbook.
+    """Return exact frozen windows for formal calibration.
 
-    This is deliberately separate from ``build_calibration_events``: no legacy
-    schedule eligibility field or inferred episode can enter the v5 estimand.
+    The workbook supplies both identities.  ``episode_id`` is the independent
+    aggregation unit and ``window_id`` is the exposure window.  This function
+    intentionally does not create ``episode_id_main``/``episode_id_augmented``
+    or collapse multiple windows into a min--max interval.
     """
-    event_book, segment_book = cfg.load_final_calibration_input()
-    cutoff = pd.to_datetime(cfg.study["measurement_start_utc"], utc=True)
+    data = cfg.load_final_calibration_input()
+    events = data.episode_windows[data.episode_windows.formal_stage3_usable].copy()
     valid = set(valid_admin1 or [])
-    event_book = event_book[event_book.measurement_start_ok.eq(1)].copy()
-    event_book = event_book[(event_book.use_main.eq(1)) | (event_book.use_augmented.eq(1))].copy()
     if valid:
-        event_book = event_book[event_book.state_en.astype(str).isin(valid)].copy()
-    # An event that begins before active measurement is an audit record only,
-    # never a calibration unit.  Keeping this boundary here also protects B1
-    # and control selection when a workbook is revised later.
-    event_book = event_book[pd.to_datetime(event_book.outage_start_utc, utc=True, errors="coerce").ge(cutoff)].copy()
-    segments = segment_book[segment_book.event_id.astype(str).isin(event_book.event_id.astype(str))].copy()
-    segments = segments[segments.segment_type.isin(["outage", "explicit_clear"])].copy()
-    segments = segments[segments.start_utc.ge(cutoff)].copy()
-    if valid:
-        segments = segments[segments.state_en.astype(str).isin(valid)].copy()
-    if segments.empty:
+        events = events[(events.admin1_iso.astype(str).isin(valid) | events.state.astype(str).isin(valid))].copy()
+    if events.empty:
         return pd.DataFrame(), pd.DataFrame()
-    segments = segments.rename(columns={"state_en": "target_admin1"})
-    segments["schedule_positive"] = segments.segment_type.eq("outage").astype("int8")
-    segments["event_date"] = segments.event_date.astype(str)
-    groups = []
-    for event_id, group in segments.groupby("event_id", sort=True):
-        outage = group[group.schedule_positive.eq(1)]
-        if outage.empty:
-            continue
-        book = event_book[event_book.event_id.astype(str).eq(str(event_id))]
-        if book.empty:
-            continue
-        row = book.iloc[0]
-        # Keep the legacy workbook IDs in the event record, but use the
-        # episode-fix IDs for all formal calibration aggregation.  This makes
-        # the estimand change explicit and preserves an auditable mapping.
-        main_episode = row.get("episode_id_v2_main", row.get("episode_id_main", ""))
-        augmented_episode = row.get("episode_id_v2_augmented", row.get("episode_id_augmented", ""))
-        groups.append({
-            "event_id": str(event_id), "geo_level": str(row.get("geo_level", "oblast")),
-            "geo_name": str(row.state_en), "event_date": str(row.event_date),
-            "start_utc": outage.start_utc.min(), "end_utc": outage.end_utc.max(),
-            "segment_n": int(len(outage)),
-            "explicit_clear_segment_n": int(group.segment_type.eq("explicit_clear").sum()),
-            "source_record_n": int(outage.segment_id.nunique()),
-            "evidence_tier": str(row.evidence_tier), "quality": str(row.get("quality", "")),
-            "use_main": int(row.use_main), "use_augmented": int(row.use_augmented),
-            "legacy_episode_id_main": str(row.episode_id_main or ""),
-            "legacy_episode_id_augmented": str(row.episode_id_augmented or ""),
-            "episode_id_v2_main": str(main_episode or ""),
-            "episode_id_v2_augmented": str(augmented_episode or ""),
-            "episode_id_main": str(main_episode or ""),
-            "episode_id_augmented": str(augmented_episode or ""),
-            "measurement_start_utc": cutoff,
-        })
-    events = pd.DataFrame(groups)
-    return events.sort_values(["event_date", "geo_name"]).reset_index(drop=True), segments
+    events = events.rename(columns={"state": "geo_name", "admin1_iso": "target_admin1"})
+    events["event_id"] = events["window_id"].astype(str)
+    events["event_date"] = events["start_utc"].dt.strftime("%Y-%m-%d")
+    events["geo_level"] = "oblast"
+    events["evidence_tier"] = events["evidence_level"]
+    events["quality"] = events["evidence_level"]
+    events["schedule_positive"] = 1
+    segments = events[["window_id", "event_id", "episode_id", "target_admin1", "geo_name",
+                       "start_utc", "end_utc", "event_date", "source_id", "schedule_positive",
+                       "evidence_level", "use_primary", "use_augmented"]].copy()
+    segments["segment_type"] = "outage"
+    segments["segment_id"] = segments["window_id"]
+    segments = segments.rename(columns={"use_primary": "use_primary", "use_augmented": "use_augmented"})
+    return events.sort_values(["event_date", "geo_name", "window_id"]).reset_index(drop=True), segments.reset_index(drop=True)
 
 
 def _overlap_cycle_ids(grid: pd.DataFrame, segments: pd.DataFrame, *, cycle_h: float,
