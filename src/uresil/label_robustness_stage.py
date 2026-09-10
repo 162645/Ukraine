@@ -240,8 +240,9 @@ def run(cfg: Config) -> dict:
     for r in results.values():
         m = r["metrics"]; lines.append(f"### {r['panel'].title()}"); lines.append(f"- WEAK support≥3: **{m['weak_support_ge3_ip_n']:,} IP**; STRICT support≥3: **{m['strict_support_ge3_ip_n']:,} IP**; common formal IP: **{m['common_formal_ip_n']:,}**."); lines.append(f"- Pearson: **{m['s_weak_strict_pearson']:.4f}**; Spearman: **{m['s_weak_strict_spearman']:.4f}**; median absolute difference: **{m['median_absolute_difference']:.6f}**; P90: **{m['p90_absolute_difference']:.6f}**."); lines.append(f"- Same quintile: **{m.get('same_quintile_fraction', float('nan')):.2%}**; within ±1: **{m.get('within_one_quintile_fraction', float('nan')):.2%}**; Q1→Q5: **{m.get('q1_to_q5_count', 0)}**; Q5→Q1: **{m.get('q5_to_q1_count', 0)}**.")
         st = r["state"]
-        lost = st.loc[st.weak_support3_n.gt(0) & st.strict_support3_n.eq(0), "target_admin1"].astype(str).tolist()
-        lines.append(f"- States with any formal WEAK support: **{int(st.weak_support3_n.gt(0).sum())}**; STRICT: **{int(st.strict_support3_n.gt(0).sum())}**. Lost support≥3 states: **{', '.join(lost) if lost else 'none'}**.")
+        st_state = st[st.target_admin1.notna()]
+        lost = st_state.loc[st_state.weak_support3_n.gt(0) & st_state.strict_support3_n.eq(0), "target_admin1"].astype(str).tolist()
+        lines.append(f"- States with any formal WEAK support: **{int(st_state.weak_support3_n.gt(0).sum())}**; STRICT: **{int(st_state.strict_support3_n.gt(0).sum())}**. Lost support≥3 states: **{', '.join(lost) if lost else 'none'}**.")
     lines += ["", "## Decision", "", f"**{label}**", "", "This is a robustness classification only; it does not select WEAK or STRICT as the main analysis label.", "", "## Outputs", "", "Coverage, common-IP, state stability, quintile transition tables and five figure families are in `tables/` and `figures/`."]
     (root / "report" / "STAGE4_5_LABEL_ROBUSTNESS.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
     return {"status": "PASS", "label_robustness": label, "excluded_windows": excluded_n, "strict_windows": strict_n, "panels": rows, "calibration": calibration}
