@@ -58,8 +58,15 @@ def _load_weak(cfg: Config) -> tuple[pd.DataFrame, Path]:
     cols = ["dst_ip", "target_admin1", "activity_score_raw", "s_reach_primary", "support_episode_n_primary"]
     cols += ["s_reach_augmented", "support_episode_n_augmented"]
     base = primary[[c for c in cols if c in primary]].copy()
-    add = augmented[[c for c in ["dst_ip", "s_reach_augmented", "support_episode_n_augmented"] if c in augmented]]
+    add_cols = [c for c in ["dst_ip", "target_admin1", "activity_score_raw", "s_reach_augmented", "support_episode_n_augmented"] if c in augmented]
+    add = augmented[add_cols].rename(columns={"target_admin1": "target_admin1_aug", "activity_score_raw": "activity_score_raw_aug"})
     out = base.drop(columns=[c for c in ["s_reach_augmented", "support_episode_n_augmented"] if c in base]).merge(add, on="dst_ip", how="outer")
+    if "target_admin1_aug" in out:
+        out["target_admin1"] = out["target_admin1"].fillna(out["target_admin1_aug"])
+        out = out.drop(columns=["target_admin1_aug"])
+    if "activity_score_raw_aug" in out:
+        out["activity_score_raw"] = out["activity_score_raw"].fillna(out["activity_score_raw_aug"])
+        out = out.drop(columns=["activity_score_raw_aug"])
     return out, root
 
 
@@ -188,6 +195,7 @@ def _figures(results: dict[str, dict], root: Path) -> None:
 
 def run(cfg: Config) -> dict:
     started = datetime.now(timezone.utc); root = _root(cfg); weak, weak_root = _load_weak(cfg)
+    weak_view = pd.read_csv(weak_root / "tables" / "frozen_weak_supervision_exposure_v1.csv")
     strict_view, excluded_n, strict_n = _strict_view(weak_root, root)
     # Explicitly reuse the frozen Stage-2 population and force a fresh
     # calibration cache in this separate run.  No war-event data is loaded.
@@ -218,7 +226,7 @@ def run(cfg: Config) -> dict:
     coverage = min(ratios) if ratios else 0; corr = min(rho) if rho else 0
     label = "LABEL_ROBUSTNESS_HIGH" if coverage >= .9 and corr >= .95 else ("LABEL_ROBUSTNESS_MODERATE" if coverage >= .75 and corr >= .9 else "LABEL_ROBUSTNESS_LOW")
     prov = cfg.raw.get("stage4_provenance", {}); workbook = cfg.resource_path("calibration_workbook")
-    manifest = {"stage": STAGE, "run_id": cfg.run_id, "git_commit": _git(cfg.root), "stage2_frozen_source": str(_source(cfg, "stage2_source_run")), "stage3_frozen_source": str(_source(cfg, "stage3_source_run")), "stage4_frozen_source": str(weak_root.parent.parent.parent), "calibration_workbook_sha256": file_sha256(workbook), "weak_window_count": 172, "strict_window_count": strict_n, "excluded_weak_supervision_long_window_count": excluded_n, "random_seed": RANDOM_SEED, "label_robustness": label, "war_attack_data_used": False, "h1_h4_run": False, "generated_at": datetime.now(timezone.utc).isoformat()}
+    manifest = {"stage": STAGE, "run_id": cfg.run_id, "git_commit": _git(cfg.root), "stage2_frozen_source": str(_source(cfg, "stage2_source_run")), "stage3_frozen_source": str(_source(cfg, "stage3_source_run")), "stage4_frozen_source": str(weak_root.parents[2]), "calibration_workbook_sha256": file_sha256(workbook), "weak_window_count": int(len(weak_view)), "strict_window_count": strict_n, "excluded_weak_supervision_long_window_count": excluded_n, "random_seed": RANDOM_SEED, "label_robustness": label, "war_attack_data_used": False, "h1_h4_run": False, "generated_at": datetime.now(timezone.utc).isoformat()}
     (root / "stage4_5_manifest.json").write_text(json.dumps(manifest, indent=2, ensure_ascii=False, default=str), encoding="utf-8")
     lines = ["# Stage 4.5 — Sensitivity Label Robustness Audit", "", f"Run ID: `{cfg.run_id}`", "", "This is a label-side audit only. H1–H4 and all held-out war-attack outcomes were not loaded.", "", "## Exposure definitions", "", f"- WEAK: frozen Stage 4 exposure, 172 windows.", f"- STRICT: excludes {excluded_n} `STATE_PLANNED_OUTAGE_WEAK_SUPERVISION` long windows; {strict_n} windows remain.", "- Episode aggregation remains cycle-union plus episode-equal; no gap fill and no stable-Activity gate.", "", "## Coverage and stability", ""]
     for r in results.values():
