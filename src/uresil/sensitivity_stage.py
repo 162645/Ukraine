@@ -278,7 +278,7 @@ def _compare_previous_stage4(cfg: Config, labels: pd.DataFrame, root: Path) -> d
         old_score = score if score in old else ("s_reach" if "s_reach" in old else score)
         old_support = support if support in old else ("support_episode_n" if "support_episode_n" in old else support)
         old = old[[c for c in ("dst_ip", "target_admin1", old_score, old_support) if c in old]].rename(columns={old_score: "old_s", old_support: "old_support"})
-        new = labels[[c for c in ("dst_ip", "target_admin1", score, support) if c in labels]].rename(columns={score: "new_s", support: "new_support"})
+        new = labels[labels[score].notna()][[c for c in ("dst_ip", "target_admin1", score, support) if c in labels]].rename(columns={score: "new_s", support: "new_support"})
         both = old.merge(new, on="dst_ip", how="inner", suffixes=("_old", "_new"))
         d = pd.to_numeric(both.new_s, errors="coerce") - pd.to_numeric(both.old_s, errors="coerce")
         absd = d.abs().dropna()
