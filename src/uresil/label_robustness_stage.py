@@ -91,7 +91,14 @@ def _corr(x: pd.Series, y: pd.Series, method: str = "pearson") -> float:
 
 def _q_assign(g: pd.DataFrame, score: str) -> pd.Series:
     out = pd.Series(pd.NA, index=g.index, dtype="string")
-    for state, idx in g.groupby("target_admin1", dropna=False).groups.items():
+    keyed = g.copy()
+    # pandas cannot construct a categorical group containing a null category
+    # with ``dropna=False`` on some versions.  Keep unmapped states explicit
+    # and ungrouped rather than letting them abort the audit.
+    keyed["_state_key"] = keyed["target_admin1"].astype("string").fillna("__MISSING_STATE__")
+    for state, idx in keyed.groupby("_state_key", sort=True).groups.items():
+        if state == "__MISSING_STATE__":
+            continue
         z = g.loc[idx].dropna(subset=[score]).sort_values([score, "dst_ip"], kind="mergesort")
         if len(z) < 5:
             continue
@@ -185,7 +192,10 @@ def run(cfg: Config) -> dict:
     # Explicitly reuse the frozen Stage-2 population and force a fresh
     # calibration cache in this separate run.  No war-event data is loaded.
     sensitivity_stage._prepare_reused_inputs(cfg)
-    cfg.raw.setdefault("_runtime_flags", {})["force_stage_recompute"] = True
+    # The first invocation has an empty run directory.  Reusing its immutable
+    # episode cache on a rerun makes this post-processing step reproducible
+    # without issuing another full ClickHouse scan.
+    cfg.raw.setdefault("_runtime_flags", {})["force_stage_recompute"] = False
     calibration = simple_calibration.run(cfg, exposure_view=strict_view)
     strict = pd.read_parquet(cfg.out_dir("results_tables") / "b1_full_sensitivity_labels.parquet")
     strict["activity_score_raw"] = pd.to_numeric(strict.get("activity_score_raw"), errors="coerce")
