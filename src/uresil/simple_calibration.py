@@ -160,7 +160,8 @@ def build_calibration_events(schedule: pd.DataFrame,
     return events.sort_values(["event_date", "geo_name"]).reset_index(drop=True), segments
 
 
-def build_final_calibration_events(cfg: Config, valid_admin1: set[str] | None = None) -> tuple[pd.DataFrame, pd.DataFrame]:
+def build_final_calibration_events(cfg: Config, valid_admin1: set[str] | None = None,
+                                   exposure_view: Path | None = None) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Return exact frozen windows for formal calibration.
 
     The workbook supplies both identities.  ``episode_id`` is the independent
@@ -169,7 +170,29 @@ def build_final_calibration_events(cfg: Config, valid_admin1: set[str] | None = 
     or collapse multiple windows into a min--max interval.
     """
     data = cfg.load_final_calibration_input()
-    events = data.episode_windows[data.episode_windows.formal_stage3_usable].copy()
+    if exposure_view is None:
+        events = data.episode_windows[data.episode_windows.formal_stage3_usable].copy()
+    else:
+        # Stage 4 consumes the derived weak-supervision view, never the
+        # mutable audit workbook directly.  The view retains the workbook's
+        # frozen episode/window identities and panel flags.
+        events = pd.read_csv(exposure_view)
+        required = {"episode_id", "window_id", "admin1_iso", "state", "start_utc", "end_utc",
+                    "evidence_level", "use_primary", "use_augmented", "formal_weak_supervision_positive"}
+        missing = sorted(required - set(events.columns))
+        if missing:
+            raise ValueError(f"weak-supervision exposure view missing columns: {missing}")
+        events = events[events.formal_weak_supervision_positive.astype(str).str.strip().str.lower().isin({"1", "true", "yes", "y"})].copy()
+        events["start_utc"] = pd.to_datetime(events["start_utc"], utc=True, errors="coerce")
+        events["end_utc"] = pd.to_datetime(events["end_utc"], utc=True, errors="coerce")
+        events = events[events.start_utc.notna() & events.end_utc.notna() & events.end_utc.gt(events.start_utc)].copy()
+        events["formal_stage3_usable"] = True
+        # Internal query/aggregation code keeps legacy aliases, while the
+        # frozen view exposes the research-plan names.  These are identity
+        # aliases only; no filtering or reclassification is performed.
+        events["use_main"] = events["use_primary"].astype(int)
+        events["episode_id_main"] = events["episode_id"]
+        events["episode_id_augmented"] = events["episode_id"]
     valid = set(valid_admin1 or [])
     if valid:
         events = events[(events.admin1_iso.astype(str).isin(valid) | events.state.astype(str).isin(valid))].copy()
@@ -443,7 +466,7 @@ def aggregate_sensors(candidates: pd.DataFrame) -> pd.DataFrame:
     return summary.sort_values(["target_admin1", "s_reach_primary", "dst_ip"], ascending=[True, False, True]).reset_index(drop=True)
 
 
-def run(cfg: Config) -> dict:
+def run(cfg: Config, exposure_view: Path | None = None) -> dict:
     logger = get_logger(cfg.out_dir("logs")); dd, rt = cfg.out_dir("data_derived"), cfg.out_dir("results_tables")
     universe = pd.read_parquet(dd / "target_ip_universe.parquet")
     parts = b1_score_parts(dd)
@@ -481,7 +504,8 @@ def run(cfg: Config) -> dict:
             raise RuntimeError("canonical cycle-quality table is required before calibration")
         cycle_quality = pd.read_csv(cycle_csv)
     grid = Events(cfg).build_cycle_grid(cycle_quality)
-    events, segments = build_final_calibration_events(cfg, set(targets.target_admin1.dropna().astype(str)))
+    events, segments = build_final_calibration_events(
+        cfg, set(targets.target_admin1.dropna().astype(str)), exposure_view=exposure_view)
     if events.empty: raise RuntimeError("no reviewed P1/P2 calibration events after measurement boundary")
     events.to_csv(rt / "calibration_events.csv", index=False, encoding="utf-8-sig")
     cycle_h = float(cfg.study["expected_cycle_interval_hours"]); all_outage_ids: set[int] = set()
