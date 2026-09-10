@@ -7,6 +7,7 @@ new episode from dates, fills internal clear gaps, or runs IP/attack analysis.
 from __future__ import annotations
 
 import json
+import re
 import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
@@ -83,7 +84,54 @@ def _bool_value(v: object) -> bool:
     return str(v).strip().lower() in {"1", "true", "yes", "y", "verified", "official"}
 
 
+def _long_window_review(data: CalibrationInput, windows: pd.DataFrame, root: Path) -> dict:
+    """Conservative semantic gate for 24h+ hourly schedule rows.
+
+    A long row is not promoted to a state-wide positive exposure merely
+    because it appears in ``01_EPISODES``.  Only an explicit note describing
+    an all-day/oblast-wide exposure is provisionally class A.  Queue/group
+    wording is class B only when it is explicit; all remaining rows stay class
+    C (manual/source review required).  This audit never edits the workbook.
+    """
+    long = data.episode_windows[
+        data.episode_windows.event_type.str.upper().eq("HOURLY_SCHEDULE") &
+        data.episode_windows.duration_h.ge(24)
+    ].copy()
+    sources = data.sources.copy()
+    sources["verified_bool"] = sources.verified.map(_bool_value)
+    sources["official_bool"] = sources.source_role.str.upper().isin({"PRIMARY_SOURCE", "OFFICIAL"})
+    source_meta = sources.set_index("source_id").to_dict("index")
+    rows = []
+    for _, r in long.iterrows():
+        note = "" if pd.isna(r.notes) else str(r.notes).strip()
+        low = note.lower()
+        explicit_uniform = bool(re.search(r"oblast[- ]wide|state[- ]wide|region[- ]wide|throughout the day|throughout .*day|throughout .*date|throughout\s+\d{1,2}\s+[a-z]+|all[- ]day", low))
+        explicit_rotation = bool(re.search(r"queue|group|rotat|rolling", low))
+        if explicit_uniform and r.evidence_level.upper() in {"A+", "A"} and r.final_status_norm in {"EXECUTED", "REVISED"}:
+            cls, reason = "A_CONFIRMED_UNIFORM", "Explicit all-day/oblast-wide wording plus positive Primary status."
+        elif explicit_rotation:
+            cls, reason = "B_GROUP_ROTATION_UNMAPPED", "Queue/group/rotation wording is present but no IP/group mapping is registered."
+        else:
+            cls, reason = "C_UNCONFIRMED_REVIEW_REQUIRED", "No explicit state-wide uniform-exposure statement in the frozen row notes."
+        sm = source_meta.get(r.source_id, {})
+        rows.append({
+            "window_id": r.window_id, "episode_id": r.episode_id, "admin1_iso": r.admin1_iso,
+            "state": r.state, "operator": r.operator, "start_utc": r.start_utc, "end_utc": r.end_utc,
+            "duration_h": r.duration_h, "evidence_level": r.evidence_level, "dataset": r.dataset,
+            "final_status": r.final_status_norm, "source_id": r.source_id,
+            "source_verified": bool(sm.get("verified_bool", False)), "source_official": bool(sm.get("official_bool", False)),
+            "notes": note, "semantic_class": cls, "review_reason": reason,
+            "formal_positive_recommendation": "RETAIN_CANDIDATE" if cls == "A_CONFIRMED_UNIFORM" else "HOLD_PENDING_REVIEW",
+        })
+    review = pd.DataFrame(rows)
+    path = root / "report" / "LONG_WINDOW_SEMANTIC_REVIEW.csv"
+    review.to_csv(path, index=False, encoding="utf-8-sig")
+    counts = review.semantic_class.value_counts().to_dict() if not review.empty else {}
+    return {"long_window_n": int(len(review)), "long_window_semantic_counts": {str(k): int(v) for k, v in counts.items()}, "long_window_review_cleared": bool(review.empty or review.semantic_class.isin(["A_CONFIRMED_UNIFORM"]).all())}
+
+
 def _audit_workbook(data: CalibrationInput, windows: pd.DataFrame, root: Path) -> dict:
+    long_review = _long_window_review(data, windows, root)
     sources = data.sources.copy()
     sources["verified_bool"] = sources.verified.map(_bool_value)
     sources["official_bool"] = sources.source_role.str.upper().isin({"PRIMARY_SOURCE", "OFFICIAL"})
@@ -168,6 +216,9 @@ def _audit_workbook(data: CalibrationInput, windows: pd.DataFrame, root: Path) -
         "cross_coverage_augmented_mismatch_n": int(cross.augmented_mismatch.sum()),
         "cross_episode_overlap_n": int(len(cross_overlap)),
         "hourly_schedule_ge24h_n": int((data.episode_windows.event_type.str.upper().eq("HOURLY_SCHEDULE") & data.episode_windows.duration_h.ge(24)).sum()),
+        "long_window_semantic_counts": long_review["long_window_semantic_counts"],
+        "long_window_review_cleared": long_review["long_window_review_cleared"],
+        "stage4_gate": "CLEARED" if long_review["long_window_review_cleared"] else "HOLD_LONG_WINDOW_REVIEW",
         "stage2_rerun": "NOT_REQUIRED",
     }
     (root / "tables" / "calibration_input_provenance.json").write_text(json.dumps(audit, indent=2, ensure_ascii=False), encoding="utf-8")
@@ -182,7 +233,8 @@ def _audit_workbook(data: CalibrationInput, windows: pd.DataFrame, root: Path) -
         "- The retired legacy sheets and legacy episode IDs are not read.",
         f"- Source FK missing: **{source_fk_missing}**; dataset consistency failures: **{len(windows.loc[~windows.dataset_consistency_ok])}**; cross-episode overlap rows: **{len(cross_overlap)}**.",
         f"- `02_STATE_COVERAGE` exact episode-count mismatches: Primary **{int(cross.primary_mismatch.sum())}**, Augmented **{int(cross.augmented_mismatch.sum())}**. `candidate_n` is a search-pool field and is not compared to final rows.",
-        f"- 24h+ `HOURLY_SCHEDULE` rows requiring semantic review: **{audit['hourly_schedule_ge24h_n']}**; they are retained, not reinterpreted.", "", "## Activity mask", "", "See `ACTIVITY_MASK_IMPACT_AUDIT.md`: **STAGE2_RERUN_NOT_REQUIRED**.", "",
+        f"- 24h+ `HOURLY_SCHEDULE` rows requiring semantic review: **{audit['hourly_schedule_ge24h_n']}**; they are retained, not reinterpreted.",
+        f"- Long-window semantic classes: **{audit['long_window_semantic_counts']}**. Stage 4 gate: **{audit['stage4_gate']}**.", "", "## Activity mask", "", "See `ACTIVITY_MASK_IMPACT_AUDIT.md`: **STAGE2_RERUN_NOT_REQUIRED**.", "",
     ]
     (root / "report" / "NEW_OUTAGE_WORKBOOK_AUDIT.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
     return audit
@@ -247,7 +299,7 @@ def run(cfg: Config) -> dict:
     by_state.to_csv(root / "tables" / "calibration_episodes_by_oblast.csv", index=False, encoding="utf-8-sig")
     windows.groupby(["month", "geo_name"], as_index=False).agg(window_n=("window_id", "nunique"), episode_n=("episode_id", "nunique"), primary_window_n=("use_primary", "sum"), augmented_window_n=("use_augmented", "sum")).to_csv(root / "tables" / "calibration_monthly_summary.csv", index=False, encoding="utf-8-sig")
     windows.evidence_level.value_counts().rename_axis("evidence_level").rename("window_n").reset_index().to_csv(root / "tables" / "calibration_evidence_summary.csv", index=False, encoding="utf-8-sig"); windows.final_status_norm.value_counts().rename_axis("final_status").rename("window_n").reset_index().to_csv(root / "tables" / "calibration_status_summary.csv", index=False, encoding="utf-8-sig")
-    summary = {"raw_workbook_window_n": int(raw_window_n), "usable_window_n": int(len(windows)), "unique_window_n": int(windows.window_id.nunique()), "unique_episode_n": int(windows.episode_id.nunique()), "primary_window_n": int(windows[windows.use_primary].window_id.nunique()), "primary_episode_n": int(windows[windows.use_primary].episode_id.nunique()), "augmented_window_n": int(windows[windows.use_augmented].window_id.nunique()), "augmented_episode_n": int(windows[windows.use_augmented].episode_id.nunique()), "oblast_n": int(windows.admin1_iso.nunique()), "primary_ge3_state_n": int(by_state.primary_ge3.sum()), "augmented_ge3_state_n": int(by_state.augmented_ge3.sum()), "dataset_consistency_fail_n": int((~windows.dataset_consistency_ok).sum()), "source_fk_missing_n": int((~windows.source_fk_ok).sum()), "cross_episode_overlap_n": int(audit["cross_episode_overlap_n"]), "stage2_rerun": "NOT_REQUIRED", "workbook_sha256": raw.workbook_sha256}
+    summary = {"raw_workbook_window_n": int(raw_window_n), "usable_window_n": int(len(windows)), "unique_window_n": int(windows.window_id.nunique()), "unique_episode_n": int(windows.episode_id.nunique()), "primary_window_n": int(windows[windows.use_primary].window_id.nunique()), "primary_episode_n": int(windows[windows.use_primary].episode_id.nunique()), "augmented_window_n": int(windows[windows.use_augmented].window_id.nunique()), "augmented_episode_n": int(windows[windows.use_augmented].episode_id.nunique()), "oblast_n": int(windows.admin1_iso.nunique()), "primary_ge3_state_n": int(by_state.primary_ge3.sum()), "augmented_ge3_state_n": int(by_state.augmented_ge3.sum()), "dataset_consistency_fail_n": int((~windows.dataset_consistency_ok).sum()), "source_fk_missing_n": int((~windows.source_fk_ok).sum()), "cross_episode_overlap_n": int(audit["cross_episode_overlap_n"]), "long_window_semantic_counts": audit["long_window_semantic_counts"], "long_window_review_cleared": audit["long_window_review_cleared"], "stage4_gate": audit["stage4_gate"], "stage2_rerun": "NOT_REQUIRED", "workbook_sha256": raw.workbook_sha256}
     (root / "tables" / "calibration_stage_summary.json").write_text(json.dumps(summary, indent=2, ensure_ascii=False), encoding="utf-8")
     figures = _figures(cfg, root, windows, membership); failures = []
     if summary["dataset_consistency_fail_n"]: failures.append("dataset/evidence consistency failure")
@@ -255,6 +307,6 @@ def run(cfg: Config) -> dict:
     if audit["cross_coverage_primary_mismatch_n"] or audit["cross_coverage_augmented_mismatch_n"]: failures.append("state coverage mismatch")
     if audit["cross_episode_overlap_n"]: failures.append("cross-episode interval overlap requires audit")
     status = "FAIL" if failures else "PASS_WITH_STRONG_WARNING"
-    report_lines = [f"# Stage 3 — Calibration Event Quality ({status})", "", f"Run ID: `{cfg.run_id}`", f"Workbook SHA256: `{raw.workbook_sha256}`", "", "## Scope", "", "This stage reads the v2-final five-sheet planned-outage registry only. It does not query ClickHouse, compute IP sensitivity, run Activity again, or use war-attack outcomes.", "", f"- Frozen rows/windows: **{summary['raw_workbook_window_n']:,}**; usable windows: **{summary['usable_window_n']:,}**; unique episodes: **{summary['unique_episode_n']:,}**.", f"- Primary: **{summary['primary_window_n']:,}** windows / **{summary['primary_episode_n']:,}** episodes; Augmented: **{summary['augmented_window_n']:,}** windows / **{summary['augmented_episode_n']:,}** episodes.", f"- Oblasts: **{summary['oblast_n']:,}**; states with ≥3 episodes: Primary **{summary['primary_ge3_state_n']:,}**, Augmented **{summary['augmented_ge3_state_n']:,}**.", "", "## Frozen semantics", "", "- `episode_id` is the independent unit supplied by the workbook; `window_id` is the exact outage window. No date-contiguity or 36-hour episode inference is performed.", "- Primary is evidence A/A+ with an explicitly positive final status; Augmented is evidence A+/A/B+/B excluding cancelled rows. Uncertain execution remains flagged and is not promoted to Primary.", "- `dataset` is a consistency check only. The retired legacy sheets and legacy episode IDs are not read.", "- Multiple windows in one episode remain separate; episode span/gap fields are descriptive and never fill clear gaps.", "", "## Audits", "", f"- Dataset/evidence consistency failures: **{summary['dataset_consistency_fail_n']}**; source FK failures: **{summary['source_fk_missing_n']}**; cross-episode overlap rows: **{summary['cross_episode_overlap_n']}**.", f"- `02_STATE_COVERAGE` recomputation mismatches: Primary **{audit['cross_coverage_primary_mismatch_n']}**, Augmented **{audit['cross_coverage_augmented_mismatch_n']}**.", f"- 24h+ hourly schedule rows requiring semantic review: **{audit['hourly_schedule_ge24h_n']}** (retained, not reinterpreted).", "- Activity mask impact: **STAGE2_RERUN_NOT_REQUIRED**; see `ACTIVITY_MASK_IMPACT_AUDIT.md`.", "", "## Gate", "", f"**{status}**" + (" — " + "; ".join(failures) if failures else " — strong warning: coverage is uneven; support≥3 is reported, not used to delete states."), "", "Stage 4 is intentionally not run by this command. H1–H4 and attack analysis are out of scope for this Stage 3 execution."]
+    report_lines = [f"# Stage 3 — Calibration Event Quality ({status})", "", f"Run ID: `{cfg.run_id}`", f"Workbook SHA256: `{raw.workbook_sha256}`", "", "## Scope", "", "This stage reads the v2-final five-sheet planned-outage registry only. It does not query ClickHouse, compute IP sensitivity, run Activity again, or use war-attack outcomes.", "", f"- Frozen rows/windows: **{summary['raw_workbook_window_n']:,}**; usable windows: **{summary['usable_window_n']:,}**; unique episodes: **{summary['unique_episode_n']:,}**.", f"- Primary: **{summary['primary_window_n']:,}** windows / **{summary['primary_episode_n']:,}** episodes; Augmented: **{summary['augmented_window_n']:,}** windows / **{summary['augmented_episode_n']:,}** episodes.", f"- Oblasts: **{summary['oblast_n']:,}**; states with ≥3 episodes: Primary **{summary['primary_ge3_state_n']:,}**, Augmented **{summary['augmented_ge3_state_n']:,}**.", "", "## Frozen semantics", "", "- `episode_id` is the independent unit supplied by the workbook; `window_id` is the exact outage window. No date-contiguity or 36-hour episode inference is performed.", "- Primary is evidence A/A+ with an explicitly positive final status; Augmented is evidence A+/A/B+/B excluding cancelled rows. Uncertain execution remains flagged and is not promoted to Primary.", "- `dataset` is a consistency check only. The retired legacy sheets and legacy episode IDs are not read.", "- Multiple windows in one episode remain separate; episode span/gap fields are descriptive and never fill clear gaps.", "", "## Audits", "", f"- Dataset/evidence consistency failures: **{summary['dataset_consistency_fail_n']}**; source FK failures: **{summary['source_fk_missing_n']}**; cross-episode overlap rows: **{summary['cross_episode_overlap_n']}**.", f"- `02_STATE_COVERAGE` recomputation mismatches: Primary **{audit['cross_coverage_primary_mismatch_n']}**, Augmented **{audit['cross_coverage_augmented_mismatch_n']}**.", f"- 24h+ hourly schedule rows requiring semantic review: **{audit['hourly_schedule_ge24h_n']}** (retained, not reinterpreted).", f"- Long-window semantic classes: **{audit['long_window_semantic_counts']}**; Stage 4 gate: **{audit['stage4_gate']}**. See `LONG_WINDOW_SEMANTIC_REVIEW.csv`.", "- Activity mask impact: **STAGE2_RERUN_NOT_REQUIRED**; see `ACTIVITY_MASK_IMPACT_AUDIT.md`.", "", "## Gate", "", f"**{status}**" + (" — " + "; ".join(failures) if failures else " — strong warning: coverage is uneven; support≥3 is reported, not used to delete states."), "", "Stage 4 is intentionally not run by this command. H1–H4 and attack analysis are out of scope for this Stage 3 execution."]
     report = root / "report" / "STAGE03_REPORT.md"; report.write_text("\n".join(report_lines) + "\n", encoding="utf-8"); manifest = _manifest(cfg, root, started, "failed" if status == "FAIL" else "warning", raw)
-    return {"status": "failed" if status == "FAIL" else "warning", "gate": status, **summary, "outputs": [str(report), str(manifest), str(root / "report" / "NEW_OUTAGE_WORKBOOK_AUDIT.md"), *figures]}
+    return {"status": "failed" if status == "FAIL" else "warning", "gate": status, **summary, "outputs": [str(report), str(manifest), str(root / "report" / "NEW_OUTAGE_WORKBOOK_AUDIT.md"), str(root / "report" / "LONG_WINDOW_SEMANTIC_REVIEW.csv"), *figures]}
