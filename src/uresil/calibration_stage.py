@@ -202,6 +202,7 @@ def _figures(cfg: Config, root: Path, windows: pd.DataFrame, membership: pd.Data
     out = []; states = sorted(windows.geo_name.astype(str).unique(), key=lambda s: str(s).lower()); state_order = windows.geo_name.value_counts().reindex(states).sort_values().index.tolist(); ypos = {s: i for i, s in enumerate(state_order)}
     colors = {"A+": "#1b9e77", "A": "#377eb8", "B+": "#7570b3", "B": "#999999"}
     for lang in ("en", "zh"):
+        plt.rcParams["font.family"] = ["WenQuanYi Micro Hei", "DejaVu Sans"] if lang == "zh" else ["DejaVu Sans"]
         figdir = root / "figures" / lang; figdir.mkdir(parents=True, exist_ok=True)
         xlabel, ylabel = (("Window start (UTC)", "Oblast") if lang == "en" else ("停电窗口开始时间（UTC）", "州"))
         # S3-1: one marker per frozen window.
