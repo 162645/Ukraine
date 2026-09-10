@@ -263,7 +263,7 @@ def _figures(out: Path, se: pd.DataFrame, effects: pd.DataFrame, cont_bins: pd.D
     m = vals.mean(axis=0); lo = vals.quantile(.025, axis=0); hi = vals.quantile(.975, axis=0)
     ax.plot(QUINTILES, m, color="#1f4e79", marker="o", lw=2)
     ax.fill_between(np.arange(5), lo.to_numpy(), hi.to_numpy(), color="#9ecae1", alpha=.35, label="event-level 95% interval")
-    ax.axhline(0, color="0.35", lw=.8); ax.set(xlabel="Frozen state-wise Sensitivity quintile", ylabel="Reach drop (pre − attack)", title="Higher planned-outage Sensitivity is associated with larger war-attack reach loss")
+    ax.axhline(0, color="0.35", lw=.8); ax.set(xlabel="Frozen state-wise Sensitivity quintile", ylabel="Reach drop (pre − attack)", title="Held-out attack reach loss is not monotonic across Sensitivity quintiles")
     ax.legend(frameon=False, fontsize=8); ax.grid(axis="y", alpha=.2); fig.tight_layout(); _savefig(fig, fd / "H2-1_quintile_gradient")
     # H2-2 event effects.
     fig, ax = plt.subplots(figsize=(7, 4.2)); e = effects.sort_values("event_id"); y=np.arange(len(e));
@@ -277,7 +277,7 @@ def _figures(out: Path, se: pd.DataFrame, effects: pd.DataFrame, cont_bins: pd.D
     ax.axhline(0,color="0.35",lw=.8); ax.set(xlabel="Frozen continuous Sensitivity $S_i$",ylabel="Mean reach drop",title="Continuous Sensitivity and war-attack reach loss"); ax.grid(alpha=.2); fig.tight_layout(); _savefig(fig, fd / "H2-3_continuous_sensitivity")
     # H2-4 severe risk.
     sr=(se.assign(severe025=se["frac_ge025"]).groupby("quintile",observed=True)["severe025"].mean().reindex(QUINTILES))
-    fig, ax = plt.subplots(figsize=(6.5,4.2)); ax.plot(QUINTILES,sr,color="#d7301f",marker="o",lw=2); ax.set(xlabel="Frozen Sensitivity quintile",ylabel="Pr(reach drop ≥ 0.25)",title="Severe reach degradation risk by Sensitivity quintile"); ax.grid(axis="y",alpha=.2); fig.tight_layout(); _savefig(fig, fd / "H2-4_severe_risk")
+    fig, ax = plt.subplots(figsize=(6.5,4.2)); ax.plot(QUINTILES,sr,color="#d7301f",marker="o",lw=2); ax.set(xlabel="Frozen Sensitivity quintile",ylabel="Pr(reach drop ≥ 0.25)",title="State/event-equal severe degradation risk by quintile"); ax.grid(axis="y",alpha=.2); fig.tight_layout(); _savefig(fig, fd / "H2-4_severe_risk")
     # H2-5 heatmap.
     h=se.pivot_table(index="event_id",columns="quintile",values="mean",aggfunc="mean").reindex(columns=QUINTILES)
     fig, ax = plt.subplots(figsize=(7.5,4.3)); im=ax.imshow(h.to_numpy(),aspect="auto",cmap="RdBu_r",vmin=np.nanmin(h),vmax=np.nanmax(h)); ax.set_xticks(range(5),QUINTILES); ax.set_yticks(range(len(h)),h.index); ax.set_xlabel("Sensitivity quintile"); ax.set_title("Mean reach drop by held-out attack and Sensitivity quintile"); fig.colorbar(im,ax=ax,label="State-equal mean reach drop"); fig.tight_layout(); _savefig(fig, fd / "H2-5_event_quintile_heatmap")
