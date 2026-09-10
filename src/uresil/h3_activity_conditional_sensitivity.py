@@ -206,7 +206,7 @@ def run(run_id:str,root:Path,h2_dir:Path,h1_dir:Path,stage2_manifest:Path,stage4
     _,a20=activity20(main); a20.to_csv(out/"h3_activity20_robustness.csv",index=False)
     figures(out,q,events,partial,state_eff,h2_un,h3_effect)
     # Conservative verdict: non-monotonic or mixed events are partial even if effect remains positive.
-    qm=q.set_index("quintile").reindex(QUINTILES)["mean"]; monotonic=bool(np.all(np.diff(qm.dropna().to_numpy())>=-1e-12)) if qm.notna().all() else False; pos=int((events.direction=="POSITIVE").sum()); rho=float(partial.loc[partial.event_id.eq('EVENT_EQUAL'),'partial_spearman'].iloc[0])
+    qm=q.groupby("quintile",observed=True)["mean"].mean().reindex(QUINTILES); monotonic=bool(np.all(np.diff(qm.dropna().to_numpy())>=-1e-12)) if qm.notna().all() else False; pos=int((events.direction=="POSITIVE").sum()); rho=float(partial.loc[partial.event_id.eq('EVENT_EQUAL'),'partial_spearman'].iloc[0])
     robust_pos=int((robust.adjusted_effect>0).sum())
     verdict="SUPPORTED" if h3_effect>0 and ci[1]>0 and pos>=4 and rho>0 and robust_pos>=3 and monotonic else ("PARTIALLY_SUPPORTED" if h3_effect>0 and pos>=3 and robust_pos>=2 else "NOT_SUPPORTED")
     report(out,main,events,partial,robust,comparison,state_eff,verdict)
