@@ -201,7 +201,7 @@ def run(run_id:str,root:Path,h2_dir:Path,h1_dir:Path,stage2_manifest:Path,stage4
     rrows=[]
     for k,z in panels.items():
         if k=="MAIN": continue
-        sz=strata(z); zz,ee=_state_level(sz); qq,ev=_event_summary(zz); c=bootstrap_effect(zz); r=bootstrap_rr(zz); ps=partial_spearman(z); rrows.append({"panel":k,"valid_endpoint_rows":len(z),"valid_ip_n":z.dst_ip.nunique(),"state_n":z.target_admin1.nunique(),"event_n":z.event_id.nunique(),"adjusted_effect":c[0],"ci_low":c[1],"ci_high":c[2],"severe_rr025":r[0],"severe_rr025_low":r[1],"severe_rr025_high":r[2],"event_equal_partial_spearman":ps.loc[ps.event_id.eq('EVENT_EQUAL'),'partial_spearman'].iloc[0] if any(ps.event_id.eq('EVENT_EQUAL')) else np.nan,"positive_event_n":int((ev.q5_q1_effect>0).sum()),"event_direction_n":len(ev)})
+        sz=strata(z); zz,ee=_state_level(sz); qq,ev=_event_summary(zz); c=bootstrap_effect(zz); r=bootstrap_rr(zz); ps=partial_spearman(z); rrows.append({"panel":k,"valid_endpoint_rows":len(z),"valid_ip_n":z.dst_ip.nunique(),"state_n":z.target_admin1.nunique(),"event_n":z.event_id.nunique(),"adjusted_effect":c[0],"ci_low":c[1],"ci_high":c[2],"severe_rr025":r[0],"severe_rr025_low":r[1],"severe_rr025_high":r[2],"event_equal_partial_spearman":ps.loc[ps.event_id.eq('EVENT_EQUAL'),'partial_spearman'].iloc[0] if any(ps.event_id.eq('EVENT_EQUAL')) else np.nan,"positive_event_n":int((ev.q5_q1_mean_effect>0).sum()),"event_direction_n":len(ev)})
     robust=pd.DataFrame(rrows); robust.to_csv(out/"h3_frozen_panel_robustness.csv",index=False)
     _,a20=activity20(main); a20.to_csv(out/"h3_activity20_robustness.csv",index=False)
     figures(out,q,events,partial,state_eff,h2_un,h3_effect)
