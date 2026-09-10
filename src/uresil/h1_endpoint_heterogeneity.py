@@ -303,8 +303,14 @@ def _query_event(cfg: Config, ch: CHClient, labels: pd.DataFrame, event: pd.Seri
     x["outcome_valid"] = True
     # Aggregate IPS is computed from cycle-level responsive-IP counts, not by
     # weighting a large state more heavily in the endpoint summaries.
-    bc = pd.concat(base_cycle_counts) if base_cycle_counts else pd.Series(dtype=float)
-    ac = pd.concat(attack_cycle_counts) if attack_cycle_counts else pd.Series(dtype=float)
+    # Each prefix batch contributes a partial responsive-IP count for the same
+    # cycle.  Collapse duplicate cycle IDs before reindexing; otherwise pandas
+    # correctly rejects the duplicate index and the aggregate IPS denominator
+    # would be ill-defined.
+    bc = (pd.concat(base_cycle_counts).groupby(level=0).sum()
+          if base_cycle_counts else pd.Series(dtype=float))
+    ac = (pd.concat(attack_cycle_counts).groupby(level=0).sum()
+          if attack_cycle_counts else pd.Series(dtype=float))
     pre_ips = float(bc.reindex(base_ids, fill_value=0).mean()) if len(base_ids) else np.nan
     attack_ips = float(ac.reindex(attack_ids, fill_value=0).mean()) if len(attack_ids) else np.nan
     agg_drop = 1.0 - attack_ips / pre_ips if np.isfinite(pre_ips) and pre_ips > 0 else np.nan
