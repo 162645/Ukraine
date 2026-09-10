@@ -411,7 +411,7 @@ def _figures(cfg: Config, out: Path, events: list[str], evsum: pd.DataFrame,
     # H1-3: IQR and large-drop fraction; common axes.
     es = evsum[evsum.event_id.isin(events)].set_index("event_id").reindex(events)
     fig, (a, b) = plt.subplots(1, 2, figsize=(7.16, 2.9), sharey=True)
-    y = np.arange(len(es)); a.hlines(y, es.p25, es.p75, color="#4C78A8", lw=3); a.scatter(es.median_drop, y, color="#D62728", zorder=3); a.axvline(0, color="0.5", lw=.7); a.set_xlabel("reach drop"); a.set_title("median and IQR")
+    y = np.arange(len(es)); a.hlines(y, es.p25_drop, es.p75_drop, color="#4C78A8", lw=3); a.scatter(es.median_drop, y, color="#D62728", zorder=3); a.axvline(0, color="0.5", lw=.7); a.set_xlabel("reach drop"); a.set_title("median and IQR")
     b.barh(y, es.fraction_drop_ge025, color="#59A14F"); b.set_xlabel("fraction with drop ≥ 0.25"); b.set_title("large endpoint losses"); b.set_xlim(0, 1)
     a.set_yticks(y, [x.replace("E2024_", "") for x in es.index]); fig.suptitle("H1-3 Within-event heterogeneity summary")
     stem = figdir / "H1-3_within_event_heterogeneity"; _write_figure(fig, stem); paths += [str(stem.with_suffix(x)) for x in (".png", ".pdf", ".svg")]
@@ -422,7 +422,7 @@ def _figures(cfg: Config, out: Path, events: list[str], evsum: pd.DataFrame,
     fig, a = plt.subplots(figsize=(5.8, 4.3)); im = a.imshow(mat.astype(float), cmap="coolwarm", vmin=-1, vmax=1); a.set_xticks(range(len(events)), [x.replace("E2024_", "") for x in events], rotation=45, ha="right"); a.set_yticks(range(len(events)), [x.replace("E2024_", "") for x in events]); fig.colorbar(im, ax=a, label="Spearman ρ"); a.set_title("H1-4 Cross-event repeatability (common IPs, matched geography)")
     stem = figdir / "H1-4_cross_event_repeatability"; _write_figure(fig, stem); paths += [str(stem.with_suffix(x)) for x in (".png", ".pdf", ".svg")]
     # H1-5: aggregate IPS drop vs endpoint distribution.
-    fig, a = plt.subplots(figsize=(5.4, 3.8)); x = es.aggregate_ips_drop.to_numpy(float); yv = es.median_drop.to_numpy(float); lo = yv - es.p25.to_numpy(float); hi = es.p75.to_numpy(float) - yv; a.errorbar(x, yv, yerr=[lo, hi], fmt="o", color="#4C78A8", ecolor="#4C78A8", capsize=3); 
+    fig, a = plt.subplots(figsize=(5.4, 3.8)); x = es.aggregate_ips_drop.to_numpy(float); yv = es.median_drop.to_numpy(float); lo = yv - es.p25_drop.to_numpy(float); hi = es.p75_drop.to_numpy(float) - yv; a.errorbar(x, yv, yerr=[lo, hi], fmt="o", color="#4C78A8", ecolor="#4C78A8", capsize=3); 
     for label, xx, yy in zip([x.replace("E2024_", "") for x in es.index], x, yv): a.annotate(label, (xx, yy), xytext=(4, 4), textcoords="offset points", fontsize=7)
     a.axline((0, 0), slope=1, color="0.6", ls="--", lw=.8); a.set_xlabel("aggregate IPS drop"); a.set_ylabel("endpoint median reach drop (IQR)"); a.set_title("H1-5 Aggregate IPS loss does not determine the endpoint distribution")
     stem = figdir / "H1-5_aggregate_vs_endpoint_distribution"; _write_figure(fig, stem); paths += [str(stem.with_suffix(x)) for x in (".png", ".pdf", ".svg")]
@@ -472,7 +472,16 @@ def run(cfg: Config) -> dict:
             ev = event_rows.get(e)
             if ev is None:
                 continue
-            z, agg = _query_event(cfg, ch, labels, ev, grid, logger, max(1, int(cfg.runtime.get("prefix_batch", 500))))
+            cached = out / f"h1_ip_event_{e}.parquet"
+            if cached.exists() and cached.stat().st_size > 0:
+                z = pd.read_parquet(cached)
+                agg = {"baseline_cycle_n": int(z["baseline_cycle_n"].iloc[0]) if not z.empty else 0,
+                       "attack_cycle_n": int(z["attack_cycle_n"].iloc[0]) if not z.empty else 0}
+                logger.info("H1 %s: reusing cached endpoint outcomes", e)
+            else:
+                z, agg = _query_event(cfg, ch, labels, ev, grid, logger, max(1, int(cfg.runtime.get("prefix_batch", 500))))
+                if not z.empty:
+                    z.to_parquet(cached, index=False, compression="zstd")
             if z.empty:
                 logger.warning("H1 %s produced no valid endpoint outcomes", e)
                 continue
