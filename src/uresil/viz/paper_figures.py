@@ -79,41 +79,10 @@ def render(cfg, lang="en"):
             outputs += _save(fig, cfg, "fig07_activity_vs_sensitivity", lsrc, "Activity versus continuous planned-outage-associated sensitivity; density is log-count.")
     else: warnings.append("endpoint distribution sources unavailable")
 
-    # Figure 3: planned power exposure and observed Internet anomalies share
-    # the same Oblast×day source table.  Render separate lanes so planned,
-    # IPS, and FBS quantities remain distinguishable instead of collapsing to
-    # one generic series.
-    d, src = _source(cfg, "fig03_power_internet_calendar")
-    metrics = [("planned_power_hours", "Planned power exposure (h)", "YlOrRd"),
-               ("ips_outage_hours", "Observed IPS anomaly (h)", "Reds"),
-               ("fbs_outage_hours", "Observed FBS anomaly (h)", "Greens")]
-    if not d.empty and {"date", "admin1"}.issubset(d.columns) and any(c in d for c, _, _ in metrics):
-        d = d.copy(); d["date"] = pd.to_datetime(d.date, errors="coerce")
-        d = d.dropna(subset=["date"]); d["date_label"] = d.date.dt.strftime("%m-%d")
-        dates = sorted(d.date_label.unique()); states = sorted(d.admin1.astype(str).unique())
-        fig, ax = plt.subplots(1, 3, figsize=(cfg.figures["double_column_width_in"], 4.0), sharey=True)
-        for a, (col, title, cmap) in zip(ax, metrics):
-            if col not in d:
-                a.text(.5, .5, "Unavailable", ha="center", va="center", transform=a.transAxes); a.set_axis_off(); continue
-            p = d.pivot_table(index=d.admin1.astype(str), columns="date_label", values=col, aggfunc="sum").reindex(index=states, columns=dates)
-            im = a.imshow(p.to_numpy(float), aspect="auto", interpolation="none", cmap=cmap, vmin=0)
-            a.set_title(title, fontsize=8); a.set_xticks(range(len(dates)), dates, rotation=60, ha="right")
-            a.set_xlabel("UTC date"); fig.colorbar(im, ax=a, fraction=.046, pad=.04)
-        ax[0].set_yticks(range(len(states)), states); ax[0].set_ylabel("Oblast")
-        outputs += _save(fig, cfg, "fig03_power_internet_calendar", src,
-                         "Oblast-by-day lanes for planned power exposure and observed IPS/FBS Internet anomalies; missing values are not imputed.")
-    else:
-        warnings.append("fig03 source data unavailable")
-
     # H1/H2/H3/H4 summary plots share a common source contract.
     d, src = _source(cfg, "fig12_h3_activity_x_sensitivity")
     if not d.empty and {"activity_decile", "sensitivity_quintile", "peak_drop"}.issubset(d.columns):
         order_d = [f"D{i}" for i in range(1, 11)]; order_q = [f"Q{i}" for i in range(1, 6)]
-        if {"event_id", "admin1"}.issubset(d.columns):
-            d = (d.groupby(["event_id", "admin1", "activity_decile", "sensitivity_quintile"], dropna=False)
-                   [["peak_drop"]].mean().reset_index()
-                   .groupby(["event_id", "activity_decile", "sensitivity_quintile"], dropna=False)
-                   [["peak_drop"]].mean().reset_index())
         p = d.assign(activity_decile=d.activity_decile.astype(str), sensitivity_quintile=d.sensitivity_quintile.astype(str)).pivot_table(index="activity_decile", columns="sensitivity_quintile", values="peak_drop", aggfunc="mean").reindex(index=order_d, columns=order_q)
         fig, ax = plt.subplots(figsize=(cfg.figures["double_column_width_in"], 4.0)); im = ax.imshow(p.to_numpy(float), aspect="auto", cmap=DIVERGING); fig.colorbar(im, ax=ax, label="Peak drop")
         ax.set_xticks(range(len(order_q)), order_q); ax.set_yticks(range(len(order_d)), order_d); ax.set_xlabel("Sensitivity quintile"); ax.set_ylabel("Activity decile")
@@ -134,13 +103,7 @@ def render(cfg, lang="en"):
             fig, ax = plt.subplots(1, 3, figsize=(cfg.figures["double_column_width_in"], 3.2))
             for a, (metric, lab) in zip(ax, metrics):
                 if metric not in d: a.text(.5, .5, "Unavailable", ha="center", va="center", transform=a.transAxes); a.set_axis_off(); continue
-                z = d
-                if {"event_id", "admin1"}.issubset(z.columns):
-                    # Event-equal estimand: state means within event, then
-                    # equal event weights across the held-out registry.
-                    z = (z.groupby(["event_id", "admin1", xcol], dropna=False)[metric].mean().reset_index()
-                           .groupby(["event_id", xcol], dropna=False)[metric].mean().reset_index())
-                g = z.groupby(xcol, dropna=False)[metric].agg(["mean", "count", "std"]).reset_index(); g["se"] = g["std"] / np.sqrt(g["count"].replace(0, np.nan));
+                g = d.groupby(xcol, dropna=False)[metric].agg(["mean", "count", "std"]).reset_index(); g["se"] = g["std"] / np.sqrt(g["count"].replace(0, np.nan));
                 a.errorbar(g[xcol].astype(str), g["mean"], yerr=1.96*g["se"], marker="o", color=PALETTE[0], capsize=2); a.set_xlabel(xlabel); a.set_ylabel(lab); a.tick_params(axis="x", rotation=30)
                 if metric == "peak_drop": a.axhline(0, color="0.3", ls=":")
             outputs += _save(fig, cfg, stem, src, "Sensitivity quintile gradient for peak drop, outage hours, and recovery time with 95% confidence intervals.")
@@ -154,9 +117,6 @@ def render(cfg, lang="en"):
         for a, (typ, title) in zip(ax, [("S_REACH", "Sensitivity groups"), ("ACTIVITY", "Activity groups")]):
             q = d[d.group_type.astype(str).str.upper().eq(typ)]
             if q.empty: a.text(.5, .5, "Unavailable", ha="center", va="center", transform=a.transAxes); a.set_axis_off(); continue
-            if {"event_id", "admin1"}.issubset(q.columns):
-                q = (q.groupby(["event_id", "admin1", group_col], dropna=False)[["population_share", "loss_contribution"]].mean().reset_index()
-                       .groupby(["event_id", group_col], dropna=False)[["population_share", "loss_contribution"]].mean().reset_index())
             g = q.groupby(group_col, dropna=False)[["population_share", "loss_contribution"]].mean(); g.plot.bar(ax=a, color=[PALETTE[0], PALETTE[1]]); a.axhline(1, color="0.3", ls=":"); a.set_title(title, fontsize=9); a.set_xlabel("Group"); a.tick_params(axis="x", rotation=45)
         ax[0].set_ylabel("Share"); ax[-1].legend(frameon=False)
         outputs += _save(fig, cfg, "fig14_h4_loss_decomposition", src, "Population share and IPS-loss contribution for sensitivity and Activity endpoint groups; the reference line is one.")
@@ -181,26 +141,15 @@ def render(cfg, lang="en"):
     d, src = _source(cfg, "fig08_attack_overall_signal")
     if not d.empty and {"rel_h", "attack_reach"}.issubset(d.columns):
         fig, ax = plt.subplots(figsize=(cfg.figures["double_column_width_in"], 3.0))
-        z = d.copy()
-        if "event_id" in z:
-            # The source retains event rows for auditability; the displayed
-            # curve gives each registered event equal weight at every rel_h.
-            z = (z.groupby(["event_id", "rel_h"], dropna=False).attack_reach.mean().reset_index()
-                   .groupby("rel_h", dropna=False).attack_reach.mean().reset_index())
-        x = pd.to_numeric(z.rel_h, errors="coerce"); ax.plot(x, pd.to_numeric(z.attack_reach, errors="coerce"), color=PALETTE[0], label="Attack")
-        if "planned_reach" in z: ax.plot(x, pd.to_numeric(z.planned_reach, errors="coerce"), color=PALETTE[1], label="Planned")
+        x = pd.to_numeric(d.rel_h, errors="coerce"); ax.plot(x, pd.to_numeric(d.attack_reach, errors="coerce"), color=PALETTE[0], label="Attack")
+        if "planned_reach" in d: ax.plot(x, pd.to_numeric(d.planned_reach, errors="coerce"), color=PALETTE[1], label="Planned")
         ax.axvline(0, color="0.35", ls="--", lw=.8); ax.axhline(1, color="0.35", ls=":", lw=.8); ax.set_xlabel("Hours relative to attack"); ax.set_ylabel("Reachability ratio"); ax.legend(frameon=False)
         outputs += _save(fig, cfg, "fig08_attack_overall_signal", src, "Event-equal attack and planned reachability curves with the registered anchor at t=0.")
     d, src = _source(cfg, "fig09_q1_q5_event_curves")
     if not d.empty and {"rel_h", "reach", "sensitivity_quintile"}.issubset(d.columns):
         fig, ax = plt.subplots(figsize=(cfg.figures["double_column_width_in"], 3.2))
         for q, g in d.groupby("sensitivity_quintile", dropna=False):
-            # Event rows are first averaged within event by paper_analysis;
-            # this final mean gives every registered attack equal weight.
-            g = (g.groupby("rel_h", as_index=False)
-                   .agg(reach=("reach", "mean"), event_n=("event_id", "nunique") if "event_id" in g else ("reach", "size"))
-                   .sort_values("rel_h"))
-            ax.plot(g.rel_h, g.reach, marker="o", ms=2.5, lw=1.0, label=str(q))
+            g = g.sort_values("rel_h"); ax.plot(g.rel_h, g.reach, marker="o", ms=2.5, lw=1.0, label=str(q))
         ax.axvline(0, color="0.35", ls="--", lw=.8); ax.axhline(1, color="0.35", ls=":", lw=.8); ax.set_xlabel("Hours relative to attack"); ax.set_ylabel("Reachability ratio"); ax.legend(frameon=False, ncol=5)
         outputs += _save(fig, cfg, "fig09_q1_q5_event_curves", src, "Event-aligned sensitivity-quintile curves with separate baselines and a t=0 anchor.")
     for stem, (xc, yc, xl, yl) in generic_specs.items():

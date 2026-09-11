@@ -87,41 +87,6 @@ def _feature_tables(cfg) -> tuple[pd.DataFrame, pd.DataFrame]:
     return all_f, labels
 
 
-def _attack_metric_tables(cfg) -> dict[str, pd.DataFrame]:
-    """Adapt the lightweight frozen-label attack summaries to H1--H4.
-
-    This is the preferred source after the observational Exp-B rewrite.  The
-    feature-panel route remains as a backwards-compatible fallback for old
-    runs, but no matching or prediction output is required for the paper
-    tables.
-    """
-    rt = cfg.out_dir("results_tables", ensure=False)
-    m = _read(rt / "exp_b_main_results.csv")
-    out = {}
-    if m.empty or not {"event_id", "admin1", "group_type", "sensitivity_group"}.issubset(m.columns):
-        return out
-    base = [c for c in ("event_id", "admin1", "ip_n", "peak_drop", "outage_hours", "recovery_time_h") if c in m]
-    h1 = m[m.group_type.isin(["ACTIVITY", "S_REACH"])].copy()
-    if not h1.empty:
-        h1 = h1.rename(columns={"sensitivity_group": "group_id"})
-        h1["group_type"] = h1.group_type.astype(str).str.lower().replace({"s_reach": "sensitivity", "activity": "activity"})
-        out["h1_ip_group_heterogeneity"] = h1[[*base, "group_type", "group_id"]]
-    h2 = m[m.group_type.eq("S_REACH")].copy()
-    if not h2.empty:
-        h2 = h2.rename(columns={"sensitivity_group": "sensitivity_quintile"})
-        out["h2_sensitivity_generalization"] = h2[[*base, "sensitivity_quintile"]]
-    h3 = m[m.group_type.eq("ACTIVITY_S_REACH")].copy()
-    if not h3.empty:
-        parts = h3.sensitivity_group.astype(str).str.split("|", n=1, expand=True)
-        h3["activity_decile"] = parts[0]; h3["sensitivity_quintile"] = parts[1]
-        out["h3_activity_x_sensitivity"] = h3[[*base, "activity_decile", "sensitivity_quintile"]]
-    h4 = _read(rt / "exp_b_loss_decomposition.csv")
-    if not h4.empty:
-        h4 = h4.rename(columns={"sensitivity_group": "group"})
-        out["h4_ips_loss_decomposition"] = h4
-    return out
-
-
 def _h1_h2_h3_h4(features: pd.DataFrame) -> dict[str, pd.DataFrame]:
     empty = {
         "h1_ip_group_heterogeneity": pd.DataFrame(columns=["event_id", "admin1", "group_type", "group_id", "ip_n", "baseline_ips", "min_ips_ratio", "peak_drop", "outage_hours", "recovery_time_h", "support_cycles"]),
@@ -187,13 +152,8 @@ def _h1_h2_h3_h4(features: pd.DataFrame) -> dict[str, pd.DataFrame]:
                          "population_share": np.nan, "baseline_responsive": b, "event_responsive": e, "ips_loss": b-e})
         h4 = pd.DataFrame(rows)
         if not h4.empty:
-            # Activity D1--D10 and sensitivity Q1--Q5 are two alternative
-            # decompositions of the same population.  Their denominators must
-            # be computed separately; pooling both label systems would make
-            # population shares and loss contributions sum to the wrong total.
-            denom_keys = ["event_id", "admin1", "group_type"]
-            h4["population_share"] = h4["eligible_ip_n"] / h4.groupby(denom_keys)["eligible_ip_n"].transform("sum").replace(0, np.nan)
-            h4["loss_contribution"] = h4["ips_loss"] / h4.groupby(denom_keys)["ips_loss"].transform("sum").replace(0, np.nan)
+            h4["population_share"] = h4["eligible_ip_n"] / h4.groupby(["event_id", "admin1"])["eligible_ip_n"].transform("sum").replace(0, np.nan)
+            h4["loss_contribution"] = h4["ips_loss"] / h4.groupby(["event_id", "admin1"])["ips_loss"].transform("sum").replace(0, np.nan)
             h4["over_contribution_ratio"] = h4["loss_contribution"] / h4["population_share"].replace(0, np.nan)
             empty["h4_ips_loss_decomposition"] = h4
     return empty
@@ -204,13 +164,6 @@ def run(cfg) -> dict:
     with step("Build H1-H4 tables and paper source-data contract", logger):
         features, labels = _feature_tables(cfg)
         tables = _h1_h2_h3_h4(features)
-        # Prefer the direct frozen-label attack summaries when available.  A
-        # legacy feature table may still exist from an older run, but it must
-        # not mask the new observational H1--H4 estimand.
-        attack_tables = _attack_metric_tables(cfg)
-        for name, table in attack_tables.items():
-            if not table.empty:
-                tables[name] = table
         # Compact paper tables requested by the plan.  Counts are derived from
         # frozen artifacts only; absent artifacts produce zero rows, never
         # fabricated estimates.
@@ -290,28 +243,17 @@ def run(cfg) -> dict:
         for hyp, name, metric in (("H1", "h1_ip_group_heterogeneity", "peak_drop"), ("H2", "h2_sensitivity_generalization", "peak_drop"), ("H2", "h2_sensitivity_generalization", "outage_hours"), ("H2", "h2_sensitivity_generalization", "recovery_time_h"), ("H3", "h3_activity_x_sensitivity", "peak_drop"), ("H3", "h3_activity_x_sensitivity", "outage_hours"), ("H3", "h3_activity_x_sensitivity", "recovery_time_h"), ("H4", "h4_ips_loss_decomposition", "loss_contribution")):
             t = tables[name]
             if t.empty or metric not in t: continue
-            # Event-equal summary: first average states within each event,
-            # then average registered events.  This prevents a nationwide
-            # attack from receiving more weight merely because it names more
-            # affected oblasts.
-            if {"event_id", "admin1"}.issubset(t.columns):
-                z = t[["event_id", "admin1", metric]].copy()
-                z[metric] = pd.to_numeric(z[metric], errors="coerce")
-                z = z.dropna(subset=[metric]).groupby(["event_id", "admin1"], dropna=False)[metric].mean().reset_index()
-                v = z.groupby("event_id", dropna=False)[metric].mean().dropna()
-            else:
-                v = pd.to_numeric(t[metric], errors="coerce").dropna()
+            v = pd.to_numeric(t[metric], errors="coerce").dropna()
             if v.empty: continue
             se = v.std(ddof=1) / np.sqrt(len(v)) if len(v) > 1 else np.nan
-            main_rows.append({"Hypothesis": hyp, "Metric": metric, "Effect": float(v.mean()), "CI_lo": float(v.mean() - 1.96 * se) if pd.notna(se) else np.nan, "CI_hi": float(v.mean() + 1.96 * se) if pd.notna(se) else np.nan, "Support": int(len(v)), "Aggregation": "event_equal", "Conclusion": "descriptive; inferential conclusion requires real event support"})
-        _write(pd.DataFrame(main_rows, columns=["Hypothesis", "Metric", "Effect", "CI_lo", "CI_hi", "Support", "Aggregation", "Conclusion"]), rt / "h1_h4_main_results.csv")
+            main_rows.append({"Hypothesis": hyp, "Metric": metric, "Effect": float(v.mean()), "CI_lo": float(v.mean() - 1.96 * se) if pd.notna(se) else np.nan, "CI_hi": float(v.mean() + 1.96 * se) if pd.notna(se) else np.nan, "Support": int(len(v)), "Conclusion": "descriptive; inferential conclusion requires real event support"})
+        _write(pd.DataFrame(main_rows, columns=["Hypothesis", "Metric", "Effect", "CI_lo", "CI_hi", "Support", "Conclusion"]), rt / "h1_h4_main_results.csv")
         # Explicit validation artifacts make the evidence boundary auditable.
         h4 = tables["h4_ips_loss_decomposition"]
         if h4.empty:
             _write(pd.DataFrame(columns=["event_id", "admin1", "contribution_sum", "ok"]), rt / "h4_validation.csv")
         else:
-            chk_keys = ["event_id", "admin1"] + (["group_type"] if "group_type" in h4 else [])
-            chk = h4.groupby(chk_keys, dropna=False)["loss_contribution"].sum().reset_index(name="contribution_sum")
+            chk = h4.groupby(["event_id", "admin1"], dropna=False)["loss_contribution"].sum().reset_index(name="contribution_sum")
             chk["ok"] = np.isclose(chk["contribution_sum"], 1.0, atol=1e-6)
             _write(chk, rt / "h4_validation.csv")
         assoc = _read(rt / "attack_continuous_sensitivity_association.csv")
@@ -376,24 +318,8 @@ def run(cfg) -> dict:
                     planned = pd.DataFrame(rows).groupby(["month", "date", "admin1"], as_index=False).planned_power_hours.sum()
                     cal_net = cal_net.merge(planned, on=["month", "date", "admin1"], how="outer")
             _write(cal_net, fd / "fig03_power_internet_calendar.csv")
-            # Figure 8 uses the held-out attack curve, not the generic
-            # canonical-signal calendar.  Preserve event/state rows in the
-            # source table and apply the registered event-equal contract:
-            # state means within event, then equal event weights.
-            attack_curve = _read(rt / "f4_event_study.csv")
-            if not attack_curve.empty and {"rel_h", "reach"}.issubset(attack_curve.columns):
-                z = attack_curve.copy().rename(columns={"reach": "attack_reach"})
-                if {"event_id", "admin1"}.issubset(z.columns):
-                    z = (z.groupby(["event_id", "admin1", "rel_h"], dropna=False)
-                           .agg(attack_reach=("attack_reach", "mean"))
-                           .reset_index()
-                           .groupby(["event_id", "rel_h"], dropna=False)
-                           .agg(attack_reach=("attack_reach", "mean"), state_n=("admin1", "nunique"))
-                           .reset_index())
-                _write(z, fd / "fig08_attack_overall_signal.csv")
-            else:
-                _write(pd.DataFrame(columns=["event_id", "rel_h", "attack_reach", "state_n"]),
-                       fd / "fig08_attack_overall_signal.csv")
+            fingerprint = _read(rt / "f6_fingerprint.csv")
+            _write(fingerprint if not fingerprint.empty else c, fd / "fig08_attack_overall_signal.csv")
         else:
             _write(pd.DataFrame(columns=["month", "ips_outage_hours", "fbs_outage_hours"]), fd / "fig04_monthly_outage_hours.csv")
             _write(pd.DataFrame(columns=["month", "date", "ips_outage_hours", "fbs_outage_hours"]), fd / "fig03_power_internet_calendar.csv")
@@ -408,25 +334,11 @@ def run(cfg) -> dict:
                 _write(cov, fd / "fig01_oblast_coverage.csv")
         else:
             _write(pd.DataFrame(columns=["target_admin1", "total_mapped_ip", "activity_estimable_ip", "sensitivity_ip", "sensitivity_support3_ip"]), fd / "fig01_oblast_coverage.csv")
-        # Figure 9 is the held-out Q1--Q5 attack characterization, not the
-        # legacy generic event-study renderer.  Keep event/state rows in the
-        # source table, but make the aggregation contract explicit so the
-        # renderer can average states within event and then events equally.
+        event_curve = _read(rt / "f4_event_study.csv")
+        _write(event_curve if not event_curve.empty else pd.DataFrame(columns=["rel_h", "effect"]), fd / "fig09_q1_q5_event_curves.csv")
         sens_curve = _read(rt / "exp_b_sensitivity_curves.csv")
-        if not sens_curve.empty and {"rel_h", "IPS_ratio", "group_type", "sensitivity_group"}.issubset(sens_curve.columns):
-            qcurve = sens_curve[sens_curve.group_type.astype(str).eq("S_REACH")].copy()
-            qcurve = qcurve.rename(columns={"IPS_ratio": "reach", "sensitivity_group": "sensitivity_quintile"})
-            qcurve["sensitivity_quintile"] = qcurve.sensitivity_quintile.astype(str)
-            # One row is one event × relative cycle × quintile after state
-            # averaging.  Plotting code performs the final event-equal mean.
-            keys = [c for c in ("event_id", "rel_h", "sensitivity_quintile") if c in qcurve.columns]
-            qcurve = (qcurve.groupby(keys, dropna=False)
-                      .agg(reach=("reach", "mean"), state_n=("admin1", "nunique"))
-                      .reset_index())
-            _write(qcurve, fd / "fig09_q1_q5_event_curves.csv")
-        else:
-            event_curve = _read(rt / "f4_event_study.csv")
-            _write(event_curve if not event_curve.empty else pd.DataFrame(columns=["rel_h", "effect"]), fd / "fig09_q1_q5_event_curves.csv")
+        if not sens_curve.empty:
+            _write(sens_curve, fd / "fig09_q1_q5_event_curves.csv")
         _write(_read(rt / "attack_continuous_sensitivity_association.csv"), fd / "fig13_h3_continuous_association.csv")
         _write(_read(rt / "f5_state_time.csv"), fd / "fig16_as_event_timeline.csv")
         cycle_quality = _read(rt / "cycle_quality.csv")
