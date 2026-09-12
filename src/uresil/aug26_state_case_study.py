@@ -37,6 +37,11 @@ def _partial_spearman(g):
     x=rs-z@bx; y=ry-z@by
     return float(np.corrcoef(x,y)[0,1]) if np.std(x)>0 and np.std(y)>0 else np.nan
 
+def _state_seed(state: str, offset: int = 0) -> int:
+    """Stable per-state seed; Python's built-in hash is process-randomized."""
+    digest = hashlib.sha256(str(state).encode("utf-8")).hexdigest()
+    return SEED + int(digest[:8], 16) % 10000 + offset
+
 def load_data(h1_path:Path,label_path:Path,h2_path:Path):
     h1=pd.read_parquet(h1_path)
     h1=h1[(h1.event_id==EVENT)&h1.outcome_valid].copy()
@@ -130,10 +135,10 @@ def state_analysis(pop_a,shock):
     for s,g in pop_a.groupby("target_admin1",observed=True):
         raw=_raw_table(g); adj,adj_detail=_adjusted_table(g)
         raw_eff=float(raw.loc["Q5","mean_reach_drop"]-raw.loc["Q1","mean_reach_drop"]); adj_eff=float(adj.loc["Q5","mean_reach_drop"]-adj.loc["Q1","mean_reach_drop"])
-        raw_lo,raw_hi,prefix_n=_cluster_bootstrap(g,"quintile",QUINTILES,_boot_raw,seed=SEED+hash(s)%10000); adj_lo,adj_hi,prefix_n2=_adjusted_bootstrap(g)
+        raw_lo,raw_hi,prefix_n=_cluster_bootstrap(g,"quintile",QUINTILES,_boot_raw,seed=_state_seed(s)); adj_lo,adj_hi,prefix_n2=_adjusted_bootstrap(g,seed=_state_seed(s,11))
         act=g.groupby("activity_decile",observed=True).agg(ip_n=("reach_drop","size"),mean_reach_drop=("reach_drop","mean"),severe025=("reach_drop",lambda x:float(np.mean(x>=.25)))).reindex(DECILES)
         act_eff=float(act.loc["D10","mean_reach_drop"]-act.loc["D1","mean_reach_drop"]) if act.loc[["D1","D10"],"mean_reach_drop"].notna().all() else np.nan
-        act_lo,act_hi,prefix_n3=_cluster_bootstrap(g,"activity_decile",DECILES,_boot_activity,seed=SEED+hash(s)%10000+31)
+        act_lo,act_hi,prefix_n3=_cluster_bootstrap(g,"activity_decile",DECILES,_boot_activity,seed=_state_seed(s,31))
         a_q=[]
         for q in QUINTILES:
             qrows.append({"population_type":"SENSITIVITY_CASE_POPULATION","target_admin1":s,"quintile":q,"raw_mean_reach_drop":raw.loc[q,"mean_reach_drop"],"raw_median_reach_drop":raw.loc[q,"median_reach_drop"],"raw_p25":raw.loc[q,"p25"],"raw_p75":raw.loc[q,"p75"],"raw_severe025":raw.loc[q,"severe025"],"raw_severe050":raw.loc[q,"severe050"],"activity_adjusted_mean_reach_drop":adj.loc[q,"mean_reach_drop"],"activity_decile_n":adj.loc[q,"activity_decile_n"]})
@@ -225,7 +230,7 @@ def map_figure(out,summary,geojson):
                 if not poly: continue
                 ring=poly[0]; patches.append(Polygon(ring,closed=True)); colors.append(COLORS.get(classes.get(name),"#eeeeee"))
         if not patches:return False
-        fig,ax=plt.subplots(figsize=(8,7)); pc=PatchCollection(patches,facecolor=colors,edgecolor="white",linewidth=.4); ax.add_collection(pc); ax.autoscale(); ax.set_aspect("equal"); ax.set_axis_off(); ax.set_title("2024-08-26: Activity-adjusted Q5−Q1 classification"); ax.legend(handles=[Patch(facecolor=c,label=k) for k,c in COLORS.items()],title="Activity-adjusted Q5−Q1 classification",loc="lower left",bbox_to_anchor=(0.01,0.01),frameon=True,fontsize=7,title_fontsize=8); _plot_save(fig,out/"figures/FIG-AUG26-9_sensitivity_classification_map"); return True
+        fig,ax=plt.subplots(figsize=(8,7)); pc=PatchCollection(patches,facecolor=colors,edgecolor="white",linewidth=.4); ax.add_collection(pc); ax.autoscale(); ax.set_aspect("equal"); ax.set_axis_off(); ax.set_title("2024-08-26: Activity-adjusted Q5−Q1 classification"); ax.text(.015,.025,"ROBUST_POSITIVE=green   DIRECTIONAL_POSITIVE=light green   DIRECTIONAL_NEGATIVE=light blue   ROBUST_NEGATIVE=blue   NOT_ESTIMABLE=gray",transform=ax.transAxes,fontsize=7,ha="left",va="bottom",bbox=dict(facecolor="white",edgecolor="0.6",alpha=.9,pad=4)); _plot_save(fig,out/"figures/FIG-AUG26-9_sensitivity_classification_map"); return True
     except Exception:return False
 
 def report(out,pop_a,pop_b,shock,summary,loso,assoc):
