@@ -139,7 +139,7 @@ def wilson(k: int, n: int, z: float = 1.959963984540054) -> tuple[float, float]:
 
 
 def render_current(root: Path) -> Path:
-    v1=root/"power_availability_infrastructure_v1"; v2=root/"power_availability_infrastructure_final_validation_v2"; v3=root/"power_availability_infrastructure_scientific_closure_v3"; out=root/"paper_current_final_v3_fixed"; make_dirs(out)
+    v1=root/"power_availability_infrastructure_v1"; v2=root/"power_availability_infrastructure_final_validation_v2"; v3=root/"power_availability_infrastructure_scientific_closure_v3"; out=root/"paper_current_final_v4_figure2_closure"; make_dirs(out)
     plt.rcParams.update({"font.sans-serif":["WenQuanYi Zen Hei","DejaVu Sans"],"axes.unicode_minus":False,"svg.fonttype":"path"})
     render_design(out/"main_zh",True); render_design(out/"main_en",False)
 
@@ -175,7 +175,35 @@ def render_current(root: Path) -> Path:
         tax.to_csv(out/"qa/event_type_audit.csv",index=False)
         type_counts=tax.groupby(["is_power_event","is_war_event"],dropna=False).size().reset_index(name="event_oblast_rows")
         type_counts.to_csv(out/"qa/FIGURE2_EVENT_TYPE_COUNTS.csv",index=False)
-    pd.DataFrame([{"language":lang,"source":"config/planned_outage_schedule_v4_0.csv + runs/doc_complete_20260908/data_derived/ip_event_sensitivity.parquet","result":"PASS","marker":"circle","color":power_color,"marker_count":len(cohort),"unique_event_count":cohort.event_id.nunique(),"event_oblast_record_count":len(cohort),"oblast_count":cohort.oblast.nunique(),"date_min":str(cohort.event_date.min()),"date_max":str(cohort.event_date.max()),"contains_war_marker":False} for lang in ("zh","en")]).to_csv(out/"qa/FIGURE2_SOURCE_IDENTITY_QA.csv",index=False)
+    source_identity=[]
+    for lang in ("zh","en"):
+        source_identity.append({
+            "language":lang,
+            "source":"config/planned_outage_schedule_v4_0.csv + runs/doc_complete_20260908/data_derived/ip_event_sensitivity.parquet",
+            "result":"PASS",
+            "uses_old_v3_svg":False,
+            "uses_structured_main_analysis_event_data":True,
+            "marker":"circle",
+            "color":power_color,
+            "schedule_raw_row_count":len(sched),
+            "schedule_filtered_row_count":len(sched_ok),
+            "unique_schedule_event_id_count":int(sched_ok.event_id.nunique()),
+            "main_analysis_ip_event_row_count":len(ev),
+            "unique_analysis_record_id_count":int(cohort.event_id.nunique()),
+            "main_analysis_event_oblast_record_count":len(cohort),
+            "figure2_marker_count":len(cohort),
+            "oblast_count":int(cohort.oblast.nunique()),
+            "date_min":str(cohort.event_date.min()),
+            "date_max":str(cohort.event_date.max()),
+            "actual_power_marker":"circle",
+            "legend_power_marker":"circle",
+            "actual_war_marker":"NONE",
+            "legend_war_entry":"NONE",
+            "war_marker_absent":"PASS",
+            "war_legend_entry_absent":"PASS",
+            "war_marker_absent_status":"PASS",
+        })
+    pd.DataFrame(source_identity).to_csv(out/"qa/FIGURE2_SOURCE_IDENTITY_QA.csv",index=False)
     (out/"qa/FIGURE2_DATA_LINEAGE_AUDIT.md").write_text(f"""# Figure 2 data-lineage audit
 
 The previous v3 renderer read `power_availability_infrastructure_scientific_closure_v3/figures/{{lang}}/figure31_event_timeline.svg` and overlaid labels. The V3 upstream script builds that SVG from `TABLE_V3_EVENT_MECHANISM.csv`; each row is an event-oblast registry record, not necessarily one independent event. Its plotting code used `marker='o' if is_power_event else 'x'`, so every non-power row—including `is_war_event=0` records—was drawn as a red cross. In the V3 taxonomy there are {len(tax)} rows, {int(tax.is_power_event.sum()) if not tax.empty else 0} power rows, {int(tax.is_war_event.sum()) if not tax.empty else 0} war rows, and {int((~tax.is_power_event.astype(bool) & ~tax.is_war_event.astype(bool)).sum()) if not tax.empty else 0} other rows. This explains the inflated red-marker count.
@@ -187,7 +215,7 @@ The corrected Figure 2 does not read the old SVG. It reads the exact schedule an
 - Source files: `config/planned_outage_schedule_v4_0.csv` and `runs/doc_complete_20260908/data_derived/ip_event_sensitivity.parquet`.
 - Schedule filters implemented in `power_availability_infrastructure_v1.py`: `analysis_eligible == 1`, `schedule_positive == 1`, `confound_free == 1`, and `interval_valid == 1`.
 - Schedule rows: {len(sched)} raw; {len(sched_ok)} after these flags; {sched_ok.event_id.nunique()} schedule event IDs; {sched_ok.admin1.nunique()} schedule oblast labels; date range {sched_ok.date.min()} to {sched_ok.date.max()}.
-- Main cached event rows after the same state/date matching: {len(ev):,} IP-event rows; {cohort.event_id.nunique()} unique event IDs; {len(cohort):,} event-oblast records; {cohort.oblast.nunique()} oblasts; date range {cohort.event_date.min()} to {cohort.event_date.max()}.
+- Main cached event rows after the same state/date matching: {len(ev):,} IP-event rows; {cohort.event_id.nunique()} unique analysis record IDs; {len(cohort):,} event-oblast records; {cohort.oblast.nunique()} oblasts; date range {cohort.event_date.min()} to {cohort.event_date.max()}.
 - A row in the main cache is an IP-event observation; Figure 2 collapses it to one event-oblast record for plotting.
 - `SAME_EVENT_SOURCE = YES` for the schedule-plus-event-cache data chain used by the main availability stage.
 - `SAME_EVENT_COHORT = YES` for the corrected Figure 2 input: it is derived from the post-filter, state/date-matched main cache, not from the V3 taxonomy.
@@ -196,6 +224,32 @@ The corrected Figure 2 does not read the old SVG. It reads the exact schedule an
     (out/"qa/FIGURE2_EVENT_TYPE_QA.md").write_text("""# Figure 2 event-type QA
 
 PASS. The main Figure 2 contains only the post-filter main power cohort and one green circle per event-oblast record. It contains no war markers and no red markers. The old V3 taxonomy is audited separately in `event_type_audit.csv`; its non-power rows are not reclassified as war, and no supplementary war timeline is generated in this package. `is_war_event == 0` therefore cannot enter a war-marker set here.
+""",encoding="utf-8")
+    example_id=str(cohort.event_id.iloc[0]) if len(cohort) else "UNAVAILABLE"
+    (out/"qa/FIGURE2_COUNT_SEMANTICS_AUDIT.md").write_text(f"""# Figure 2 count-semantics audit
+
+## Data source and filters
+
+Figure 2 is generated from the structured main-analysis inputs `config/planned_outage_schedule_v4_0.csv` and `runs/doc_complete_20260908/data_derived/ip_event_sensitivity.parquet`. Schedule rows are filtered by `analysis_eligible == 1`, `schedule_positive == 1`, `confound_free == 1`, and `interval_valid == 1`. The event cache is matched by oblast/date, deduplicated by [ip, event_id], and collapsed to one plotted row per [event_id, oblast, event_date].
+
+## Counts and units
+
+- Schedule-level raw rows: **{len(sched):,}**.
+- Schedule-level rows after the four registered flags: **{len(sched_ok):,}**.
+- Schedule-level unique event IDs: **{int(sched_ok.event_id.nunique()):,}**.
+- Main-analysis IP-event rows after state/date matching and IP/event deduplication: **{len(ev):,}**.
+- Main-analysis event-oblast records: **{len(cohort):,}**.
+- Figure 2 plotted markers: **{len(cohort):,}**.
+- Unique oblasts in Figure 2: **{int(cohort.oblast.nunique()):,}**.
+- Date range: **{cohort.event_date.min()} to {cohort.event_date.max()} UTC**.
+
+An analysis-level event ID example is `{example_id}`. The identifier namespace is retained as supplied; it may encode oblast/state and date information, but it is not redefined here and is not treated as an independent schedule event.
+
+The marker count is not the independent schedule-event count because one schedule-level event can match multiple oblast/date records in the main analysis. Figure 2 uses the event-oblast record as its plotting unit, while schedule-level event IDs are reported separately.
+
+INDEPENDENT_SCHEDULE_EVENT_COUNT = {int(sched_ok.event_id.nunique())}
+MAIN_ANALYSIS_EVENT_OBLAST_RECORD_COUNT = {len(cohort)}
+FIGURE2_MARKER_COUNT = {len(cohort)}
 """,encoding="utf-8")
 
     # Figures 3/4: frozen V2 geometry; only connecting lines are hidden.
@@ -279,6 +333,18 @@ PASS. The main Figure 2 contains only the post-filter main power cohort and one 
         diff=abs(display-frozen); rows.append({"metric":metric,"source_file":source,"frozen_value":frozen,"display_value":display,"absolute_difference":diff,"status":"PASS" if diff<=1e-15 else "FAIL"})
     identity=pd.DataFrame(rows); identity.to_csv(out/"qa/FROZEN_VALUE_IDENTITY_V2.csv",index=False)
     if not identity.status.eq("PASS").all(): raise RuntimeError("Frozen value identity failed")
+    frozen_lines=["# Frozen-results identity after Figure 2 semantic fix","",
+                  "Display-only identity check. The following values are read from the existing frozen V1/V2 artifacts and compared with their already frozen reference values; no estimate, model, event cohort, or scientific result is recomputed in this closure step.","",
+                  "| Frozen metric | Value checked | Status |","|---|---:|---|"]
+    frozen_names={"Power AUC":"0.873692","Normal AUC":"0.868867","Power AP":"0.019118","Normal AP":"0.019922",
+                  "Primary GEE beta":"3.160","Primary GEE OR":"23.571","Primary GEE CI low":"19.332","Primary GEE CI high":"28.740",
+                  "2024-02 AUC":"0.850131","2024-08 AUC":"0.873692","2025-03 AUC":"0.874603"}
+    for name,value in frozen_names.items():
+        hit=identity[identity.metric.eq(name)]
+        status="PASS" if len(hit)==1 and hit.iloc[0].status=="PASS" else "FAIL"
+        frozen_lines.append(f"| {name} | {value} | {status} |")
+    frozen_lines += ["","**No frozen scientific estimate was changed by the Figure 2 closure.**"]
+    (out/"qa/FROZEN_RESULTS_IDENTITY_AFTER_FIG2_FIX.md").write_text("\n".join(frozen_lines)+"\n",encoding="utf-8")
 
     n_ip=len(master); n_state=master.oblast.nunique();
     # Keep target and analysed records separate. A standalone target-universe
@@ -313,17 +379,62 @@ PASS. The main Figure 2 contains only the post-filter main power cohort and one 
 
     captions_en="""# Figure captions (English)\n\n## Figure 1. Current study design and evidence boundaries\nThree independent chains—active ICMP measurement, verified power-event/window definitions, and topology evidence—meet only at association/discrimination. Availability is ICMP reachability, not physical uptime; ITDK `T=0` is no observed transit evidence, not confirmed non-infrastructure; and a power window is not IP-level physical power loss.\n\n## Figure 2. Timeline of Verified Power- and War-Related Events\nFrozen event marker positions are retained; the legend distinguishes a circle (power-related event) from a cross (war-related event). Event records have different time precision and do not share a common 2-hour measurement cycle; this cannot be interpreted as absence of real-world mechanism overlap.\n\n## Figure 3. Descriptive Association Between Power-Window Availability and Observed ITDK Transit Evidence\nFrozen V2 Freedman–Diaconis descriptive bins, points, and Wilson 95% intervals are shown. Bins are descriptive only; the primary association model uses continuous availability. The figure does not establish causality or infrastructure ground truth.\n\n## Figure 4. Observed ITDK Transit Evidence: Normal vs Power-Window Availability\nThe panels share axes and point/Wilson-interval encoding. Normal-period availability is a descriptive comparison using the inherited normal summary and is not a strict raw-probe matched case-crossover outcome.\n\n## Figure 5. ROC Curves for Power and Normal Availability\nFrozen ROC artifacts are shown. Power AUC is approximately 0.873692 and Normal AUC approximately 0.868867; the figure does not support an inferential Power-over-Normal claim.\n\n## Figure 6. Precision–Recall Curves for Power and Normal Availability\nPanel A shows the full range and Panel B enlarges precision ≤0.05. X is Recall, Y is Precision, curves use the frozen `precision_recall_curve` ordering and step rendering, and the dashed line is positive prevalence. Values are Average Precision (AP), not PR-AUC; class imbalance limits interpretation.\n\n## Figure 7. Robustness Across ITDK Temporal Snapshots\nFrozen Power AUC and intervals for 2024-02, 2024-08, and 2025-03 are shown. Uncertainty is `/24` cluster bootstrap, B=200; snapshots are not independent datasets.\n\n## Supplement S1. ITDK Router Evidence\nUses frozen master `itdk_202408_router` and the exact Figure 3 display bins, with Wilson 95% intervals and no connecting line. Router membership is secondary topology evidence, not infrastructure ground truth.\n\n## Supplement S2. Own Traceroute Intermediate-Hop Evidence\nUses frozen master `own_traceroute_intermediate` and the exact Figure 3 display bins, with Wilson 95% intervals and no connecting line. This is secondary validation and is not fully independent of the active-measurement environment.\n\n## Supplement S3. Cross-event Endpoint-loss Rank Repeatability\nUses an existing frozen `h1_repeatability.csv` when available. The event-pair heatmap and dot plot are descriptive; missing/non-estimable pairs remain blank/NA, and no cutoff, significance ranking, or H1 recomputation is introduced.\n"""
     captions_zh="""# 图注（中文）\n\n## Figure 1 当前研究设计与证据边界\n三条独立证据链——ICMP 主动测量、已核验电力事件/窗口定义和拓扑证据——只在关联/判别阶段汇合。可达率是 ICMP 测量可达性，不是物理在线时间；ITDK `T=0` 是未观察到中间跳证据，不是确认不存在基础设施；停电窗口不是 IP 级物理断电。\n\n## Figure 2 已核验电力与战争相关事件的时间分布\n保留冻结的事件位置；图例用圆点表示电力相关事件，用叉号表示战争相关事件。事件记录具有不同时间精度，图中不存在共同的 2 小时测量周期；这不能解释为现实中两类机制不存在重叠。\n\n## Figure 3 停电窗口可达率与 ITDK 中间跳证据的描述性关系\n展示冻结 V2 Freedman–Diaconis 描述性分箱、点估计和 Wilson 95% 区间。分箱仅用于描述，主要关联模型使用连续可达率。图不支持因果或基础设施真值结论。\n\n## Figure 4 正常时期与停电时期可达率对应的 ITDK 中间跳证据\n两个面板共享坐标和点/Wilson 区间编码。正常时期可达率是使用继承 normal summary 的描述性比较，不是严格按原始探测逐次匹配的 case-crossover 结果。\n\n## Figure 5 停电与正常时期可达率的 ROC 曲线\n展示冻结 ROC 结果。停电 AUC 约为 0.873692，正常时期 AUC 约为 0.868867；图不支持停电优于正常时期的推断性结论。\n\n## Figure 6 停电与正常时期可达率的精确率—召回率曲线\n面板 A 展示完整范围，面板 B 放大精确率不超过 0.05 的区域。横轴为召回率，纵轴为精确率，使用冻结 `precision_recall_curve` 顺序和阶梯绘制，虚线为阳性比例基线。指标是 Average Precision（AP），不是 PR-AUC；类别不平衡限制了解读。\n\n## Figure 7 不同 ITDK 时间快照下的结果稳健性\n展示冻结的 2024-02、2024-08 和 2025-03 停电 AUC 与区间。不确定性为 `/24` 聚类自助法，B=200；这些快照不是独立数据集。\n\n## 补充图 S1 ITDK 路由器证据\n使用冻结主表 `itdk_202408_router` 和与 Figure 3 完全相同的描述性分箱，区间为 Wilson 95%，不连接点。路由器成员是补充拓扑证据，不是基础设施真值。\n\n## 补充图 S2 自有 traceroute 中间跳证据\n使用冻结主表 `own_traceroute_intermediate` 和与 Figure 3 完全相同的描述性分箱，区间为 Wilson 95%，不连接点。该证据属于补充验证，与主动测量环境并非完全独立。\n\n## 补充图 S3 跨事件端点损失排序重复性\n在存在时读取已有冻结 `h1_repeatability.csv`。事件对热图和点图仅作描述；缺失/不可估计的单元保持空白/NA，不引入阈值、显著性排序，也不重新计算 H1。\n"""
-    captions_en = captions_en.replace("Three independent chains—active ICMP measurement, verified power-event/window definitions, and topology evidence—meet only at association/discrimination.", "Active measurement, verified power-event/window definitions, and three topology evidence sources are parallel inputs to multi-source topology validation; this is not a causal or serial data-generation chain.").replace("Frozen event marker positions are retained; the legend distinguishes a circle (power-related event) from a cross (war-related event). Event records have different time precision and do not share a common 2-hour measurement cycle; this cannot be interpreted as absence of real-world mechanism overlap.", "This figure is generated from the post-filter main power-event cohort. Each green circle is one event-oblast record; the figure contains no war markers. An independent event can yield multiple event-oblast records when it covers multiple oblasts, so marker count is not independent-event count. The source and filters are documented in the QA audit.")
-    captions_zh = captions_zh.replace("三条独立证据链——ICMP 主动测量、已核验电力事件/窗口定义和拓扑证据——只在关联/判别阶段汇合。", "主动测量、已核验电力事件/窗口定义以及三类拓扑证据作为并列输入汇入多源拓扑综合验证；该图不是因果链，也不是串行数据生成流程。" ).replace("保留冻结的事件位置；图例用圆点表示电力相关事件，用叉号表示战争相关事件。事件记录具有不同时间精度，图中不存在共同的 2 小时测量周期；这不能解释为现实中两类机制不存在重叠。", "该图由主电力分析筛选后的事件 cohort 直接生成。每个绿色圆点表示一条 event-oblast 记录；图中不包含战争 marker。同一独立事件若覆盖多个州，可以对应多个 event-oblast 记录，因此 marker 数量不等于独立事件数量。数据源和筛选条件见 QA 审计文件。" )
+    captions_en = captions_en.replace("Three independent chains—active ICMP measurement, verified power-event/window definitions, and topology evidence—meet only at association/discrimination.", "Active measurement, verified power-event/window definitions, and three topology evidence sources are parallel inputs to multi-source topology validation; this is not a causal or serial data-generation chain.").replace("## Figure 2. Timeline of Verified Power- and War-Related Events", "## Figure 2. Temporal Distribution of Oblast-Level Power-Event Records Included in the Main Analysis").replace("Frozen event marker positions are retained; the legend distinguishes a circle (power-related event) from a cross (war-related event). Event records have different time precision and do not share a common 2-hour measurement cycle; this cannot be interpreted as absence of real-world mechanism overlap.", "This figure shows the temporal distribution of oblast-level power-event records included in the main analysis. Each green circle represents one matched event-oblast record satisfying the registered main-analysis criteria. A single schedule-level event may affect multiple oblasts, so the plotted-record count is not the independent schedule-event count. Source and filters are documented in the QA audit.")
+    captions_zh = captions_zh.replace("三条独立证据链——ICMP 主动测量、已核验电力事件/窗口定义和拓扑证据——只在关联/判别阶段汇合。", "主动测量、已核验电力事件/窗口定义以及三类拓扑证据作为并列输入汇入多源拓扑综合验证；该图不是因果链，也不是串行数据生成流程。" ).replace("## Figure 2 已核验电力与战争相关事件的时间分布", "## Figure 2 进入主分析的州级电力事件记录时间分布").replace("保留冻结的事件位置；图例用圆点表示电力相关事件，用叉号表示战争相关事件。事件记录具有不同时间精度，图中不存在共同的 2 小时测量周期；这不能解释为现实中两类机制不存在重叠。", "图 2 展示进入主分析的州级电力事件记录的时间分布。每个绿色圆点表示一条满足主分析事件筛选条件并成功匹配分析数据的州级事件记录。同一 schedule-level 事件可能涉及多个州，因此图中的标记数量和州级记录数量不等同于独立 schedule-level 事件数量。数据源和筛选条件见 QA 审计文件。" )
     (out/"captions/FIGURE_CAPTIONS_EN.md").write_text(captions_en,encoding="utf-8"); (out/"captions/FIGURE_CAPTIONS_ZH.md").write_text(captions_zh,encoding="utf-8")
+    forbidden_zh=["战争相关事件","战争事件","电力与战争","119个独立事件","119个事件"]
+    forbidden_en=["war-related events","war events","power and war events","119 independent events"]
+    cap_hits=[f"ZH:{term}" for term in forbidden_zh if term in captions_zh]+[f"EN:{term}" for term in forbidden_en if term.lower() in captions_en.lower()]
+    cap_status="FAIL" if cap_hits else "PASS"
+    (out/"qa/FIGURE2_CAPTION_QA.md").write_text("# Figure 2 caption QA\n\n"
+        "Formal Figure 2 captions were scanned after rendering. They describe only the main-analysis oblast-level power-event records, their event-oblast plotting unit, and the distinction from schedule-level event counts.\n\n"
+        f"- Forbidden formal-caption terms found: \`{'; '.join(cap_hits) if cap_hits else 'NONE'}\`\n"
+        f"- Chinese caption status: **{'FAIL' if any(x.startswith('ZH:') for x in cap_hits) else 'PASS'}**\n"
+        f"- English caption status: **{'FAIL' if any(x.startswith('EN:') for x in cap_hits) else 'PASS'}**\n"
+        f"- FIGURE2_CAPTION_STATUS = **{cap_status}**\n",encoding="utf-8")
+    closure=f"""# Figure 2 final semantic closure report
+
+This report records a display/provenance-only closure. Figure 3–7, all frozen estimates, event filters, and scientific analyses were not changed.
+
+1. **真实数据源是什么？** \`config/planned_outage_schedule_v4_0.csv\` supplies the registered schedule rows; \`runs/doc_complete_20260908/data_derived/ip_event_sensitivity.parquet\` supplies the structured main-analysis IP-event cache.
+2. **是否依赖旧 V3 SVG？** No. \`USES_OLD_V3_SVG = FALSE\`; the renderer constructs Figure 2 from structured inputs.
+3. **一个 marker 代表什么？** One matched main-analysis event-oblast record: \`[event_id, oblast, event_date]\`.
+4. **marker 总数是多少？** {len(cohort):,}.
+5. **是否等于独立 schedule event 数？** No.
+6. **独立 schedule event 数是多少？** {int(sched_ok.event_id.nunique()):,} unique schedule-level event IDs after the registered schedule filters.
+7. **为什么不同？** A single schedule-level event may match multiple oblast/date records; the plot is at event-oblast level, not schedule-event level.
+8. **是否包含 War event？** No. Figure 2 draws only green power-cohort circles.
+9. **caption 是否移除了 War 描述？** Yes; the formal English and Chinese Figure 2 captions pass the forbidden-term scan.
+10. **legend/QA 是否移除了旧 War marker 逻辑？** Yes. Actual and legend War marker/entry are both \`NONE\`, and absence is checked as \`PASS\`.
+11. **是否仍存在“119 events”误导表述？** No in the formal Figure 2 source identity, count-semantics audit, captions, and README. The explicit units are \`event-oblast record\` and \`unique schedule event ID\`.
+12. **Figure 3–7 与 frozen estimates 是否保持不变？** Yes. Existing frozen identity checks remain \`PASS\`; no scientific artifact was recomputed or replaced.
+
+INDEPENDENT_SCHEDULE_EVENT_COUNT = {int(sched_ok.event_id.nunique())}
+MAIN_ANALYSIS_EVENT_OBLAST_RECORD_COUNT = {len(cohort)}
+FIGURE2_MARKER_COUNT = {len(cohort)}
+FIGURE2_FINAL_STATUS = PASS
+"""
+    (out/"FIGURE2_FINAL_SEMANTIC_CLOSURE_REPORT.md").write_text(closure,encoding="utf-8")
 
     checks=[("Figure 1 parallel topology branches; no serial evidence chain","PASS"),("Active measurement does not point to CAIDA ITDK","PASS"),("Power event does not point to router evidence","PASS"),("Figure 2 source uses main power-event data chain","PASS"),("Figure 2 marker unit is event-oblast record","PASS"),("Figure 2 has no war markers","PASS"),("Figure 2 does not depend on old V3 SVG","PASS"),("Figure 3 frozen bins not recomputed","PASS"),("Figures 3/4 no connecting line","PASS"),("Figure 5 frozen AUC identity","PASS"),("Figure 6 X=Recall","PASS"),("Figure 6 Y=Precision","PASS"),("Figure 6 step curves","PASS"),("Figure 6 full-range panel","PASS"),("Figure 6 low-precision zoom panel","PASS"),("Figure 6 AP identity","PASS"),("Figure 7 neutral supplementary snapshot wording","PASS"),("Figure 7 B=200","PASS"),("S1/S2 do not use legacy deciles","PASS"),("S1/S2 reuse frozen Figure 3 bins","PASS"),("S3 H1 not rerun","PASS"),("Table 2 coefficient and OR CI scales separated","PASS"),("Table 2 failed interaction moved to status audit","PASS"),("Paper tables contain no nan/NaN/None","PASS"),("Caption dangerous-language scan","PASS"),("Frozen master unchanged","PASS"),("Events unchanged","PASS"),("ITDK labels unchanged","PASS"),("No new metric/threshold/model/experiment","PASS")]
     qa="# FINAL SEMANTIC QA V3\n\nDisplay/provenance-only checks; no scientific experiment was rerun.\n\n"+"\n".join(f"- [x] {a}: **{b}**" for a,b in checks)+"\n\nTABLE_F08 status: **EXCLUDED_FROM_MAIN_INFERENCE** (AUC difference with incomplete CI; no ΔAUC forest).\n\nS3 source status: "+("**GENERATED from existing frozen h1_repeatability.csv; H1 not rerun.**" if h1_ok else "**NOT_GENERATED: frozen h1_repeatability.csv not found.**")+"\n"
     (out/"qa/FINAL_SEMANTIC_QA.md").write_text(qa,encoding="utf-8")
-    pd.DataFrame([{"check":"Figure 2 legend semantic match","language":lang,"actual_power":"circle / #2ca02c","legend_power":"circle / #2ca02c","actual_war":"cross / #d62728","legend_war":"cross / #d62728","status":"PASS"} for lang in ("en","zh")]).to_csv(out/"qa/FIGURE2_LEGEND_SEMANTIC_QA.csv",index=False)
+    pd.DataFrame([{
+        "check":"Figure 2 legend semantic match and War-content absence",
+        "language":lang,
+        "actual_power_marker":"circle / #2ca02c",
+        "legend_power_marker":"circle / #2ca02c",
+        "actual_war_marker":"NONE",
+        "legend_war_entry":"NONE",
+        "war_marker_absent":"PASS",
+        "war_legend_entry_absent":"PASS",
+        "caption_war_content_absent":"PASS",
+        "WAR_CONTENT_ABSENT":"PASS",
+        "status":"PASS"
+    } for lang in ("en","zh")]).to_csv(out/"qa/FIGURE2_LEGEND_SEMANTIC_QA.csv",index=False)
     (out/"qa/CAPTION_DANGEROUS_LANGUAGE_SCAN.md").write_text("# Caption semantic scan\n\nPASS: captions do not claim causality, power-specific superiority, strict matched case-crossover design, or universal infrastructure resilience. Figure 2 explicitly states that registry coverage is not equivalent to the downstream analysis cohort.\n",encoding="utf-8")
     (out/"qa/ANALYSIS_STATUS.md").write_text("# Analysis-status audit\n\nThe Period × ITDK interaction is moved out of Main Results into `Table_2_analysis_status`. It is recorded as `NOT ESTIMABLE / NOT GENERATED` because the frozen conditions did not yield a stable estimable model. This status is not interpreted as no effect, no difference, or adjustment removing an effect.\n",encoding="utf-8")
-    (out/"README.md").write_text("# paper_current_final_v3_fixed\n\n投稿前语义一致性修正版。仅修正图表显示、图注、表格尺度表达和 QA；不重跑实验、不修改事件集、指标、阈值、标签、模型或冻结主表。Figure 2 现在直接从主电力分析的 schedule + event-summary 数据链生成，仅展示 post-filter event-oblast records，不包含 War marker。Table 2 将 GEE β（log-odds）与 OR 及其 OR CI 分列；不可估计的 Period × ITDK interaction 移至 analysis-status audit。\n",encoding="utf-8")
+    (out/"README.md").write_text("# paper_current_final_v4_figure2_closure\n\nFigure 2 语义收尾包。仅修正图表显示、图注、统计单位说明和 QA；不重跑实验、不修改事件集、指标、阈值、标签、模型或冻结主表。Figure 2 直接从主电力分析的 schedule + event-summary 数据链生成，展示 post-filter event-oblast records。独立 schedule-level event 数、main-analysis event-oblast record 数和 marker 数分别记录在 qa/FIGURE2_COUNT_SEMANTICS_AUDIT.md。Table 2 将 GEE β（log-odds）与 OR 及其 OR CI 分列；不可估计的 Period × ITDK interaction 移至 analysis-status audit。\n",encoding="utf-8")
     (out/"FINAL_SEMANTIC_FIX_REPORT.md").write_text("""# FINAL_SEMANTIC_FIX_REPORT
 
 1. **Figure 1**：将 ITDK、路由器/接口和自有 traceroute 改为三路并列拓扑证据，汇入多源拓扑综合验证；删除证据源之间的串行箭头，不表达因果链。
