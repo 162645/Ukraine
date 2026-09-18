@@ -1,0 +1,3 @@
+language,source,result,marker,color,marker_count,unique_event_count,event_oblast_record_count,oblast_count,date_min,date_max,contains_war_marker
+zh,config/planned_outage_schedule_v4_0.csv + runs/doc_complete_20260908/data_derived/ip_event_sensitivity.parquet,PASS,circle,#2ca02c,119,119,119,17,2024-06-22,2024-09-06,False
+en,config/planned_outage_schedule_v4_0.csv + runs/doc_complete_20260908/data_derived/ip_event_sensitivity.parquet,PASS,circle,#2ca02c,119,119,119,17,2024-06-22,2024-09-06,False

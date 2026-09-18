@@ -1,0 +1,5 @@
+# Figure 2 data-lineage audit
+
+The previous v3 renderer read `power_availability_infrastructure_scientific_closure_v3/figures/{lang}/figure31_event_timeline.svg` and overlaid labels. The V3 upstream script builds that SVG from `TABLE_V3_EVENT_MECHANISM.csv`; each row is an event-oblast registry record, not necessarily one independent event. Its plotting code used `marker='o' if is_power_event else 'x'`, so every non-power row—including `is_war_event=0` records—was drawn as a red cross. In the V3 taxonomy there are 59 rows, 19 power rows, 24 war rows, and 16 other rows. This explains the inflated red-marker count.
+
+The corrected Figure 2 does not read the old SVG. It reads the exact schedule and event-summary inputs used by `power_availability_infrastructure_v1.py`, applies its four schedule flags and state/date matching, then deduplicates IP/event rows and plots unique event-oblast records. The marker unit is explicitly an event-oblast record; independent event count is reported separately.

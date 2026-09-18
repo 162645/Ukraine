@@ -5,8 +5,10 @@ Display/provenance-only checks; no scientific experiment was rerun.
 - [x] Figure 1 parallel topology branches; no serial evidence chain: **PASS**
 - [x] Active measurement does not point to CAIDA ITDK: **PASS**
 - [x] Power event does not point to router evidence: **PASS**
-- [x] Figure 2 legend marker/color/label semantic match: **PASS**
-- [x] Figure 2 analysis cohort subset: **NOT RECOVERABLE; caption boundary present**
+- [x] Figure 2 source uses main power-event data chain: **PASS**
+- [x] Figure 2 marker unit is event-oblast record: **PASS**
+- [x] Figure 2 has no war markers: **PASS**
+- [x] Figure 2 does not depend on old V3 SVG: **PASS**
 - [x] Figure 3 frozen bins not recomputed: **PASS**
 - [x] Figures 3/4 no connecting line: **PASS**
 - [x] Figure 5 frozen AUC identity: **PASS**

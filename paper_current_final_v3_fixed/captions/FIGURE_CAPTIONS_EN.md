@@ -4,7 +4,7 @@
 Active measurement, verified power-event/window definitions, and three topology evidence sources are parallel inputs to multi-source topology validation; this is not a causal or serial data-generation chain. Availability is ICMP reachability, not physical uptime; ITDK `T=0` is no observed transit evidence, not confirmed non-infrastructure; and a power window is not IP-level physical power loss.
 
 ## Figure 2. Timeline of Verified Power- and War-Related Events
-This is an event-registry / temporal-coverage view. Green circles are power-related events and red crosses are war-related events, matching the frozen V3 plotted objects. The approved artifacts do not unambiguously recover which registry rows entered the downstream IP analysis; the figure therefore does not imply that all displayed events were analysed. Valid measurements, opportunity conditions, and event matching further constrain the analysis cohort. Event records have different time precision and do not share a common 2-hour measurement cycle.
+This figure is generated from the post-filter main power-event cohort. Each green circle is one event-oblast record; the figure contains no war markers. An independent event can yield multiple event-oblast records when it covers multiple oblasts, so marker count is not independent-event count. The source and filters are documented in the QA audit.
 
 ## Figure 3. Descriptive Association Between Power-Window Availability and Observed ITDK Transit Evidence
 Frozen V2 Freedman–Diaconis descriptive bins, points, and Wilson 95% intervals are shown. Bins are descriptive only; the primary association model uses continuous availability. The figure does not establish causality or infrastructure ground truth.
