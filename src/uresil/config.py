@@ -482,6 +482,11 @@ def load_config(config_path: str | os.PathLike | None = None, *, run_id: str | N
         if isinstance(selected.get("runtime"), dict):
             override["runtime"] = {k: v for k, v in selected["runtime"].items()
                                    if k in runtime_keys}
+        # Stage 4 provenance is a deterministic local-run binding, not a
+        # connection secret. Preserve it when the local override is merged
+        # with the frozen scientific configuration.
+        if isinstance(selected.get("stage4_provenance"), dict):
+            override["stage4_provenance"] = dict(selected["stage4_provenance"])
         raw = _deep_merge(base_raw, override)
     else:
         raw = selected

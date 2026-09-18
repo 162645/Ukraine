@@ -290,21 +290,11 @@ def run(cfg) -> dict:
         for hyp, name, metric in (("H1", "h1_ip_group_heterogeneity", "peak_drop"), ("H2", "h2_sensitivity_generalization", "peak_drop"), ("H2", "h2_sensitivity_generalization", "outage_hours"), ("H2", "h2_sensitivity_generalization", "recovery_time_h"), ("H3", "h3_activity_x_sensitivity", "peak_drop"), ("H3", "h3_activity_x_sensitivity", "outage_hours"), ("H3", "h3_activity_x_sensitivity", "recovery_time_h"), ("H4", "h4_ips_loss_decomposition", "loss_contribution")):
             t = tables[name]
             if t.empty or metric not in t: continue
-            # Event-equal summary: first average states within each event,
-            # then average registered events.  This prevents a nationwide
-            # attack from receiving more weight merely because it names more
-            # affected oblasts.
-            if {"event_id", "admin1"}.issubset(t.columns):
-                z = t[["event_id", "admin1", metric]].copy()
-                z[metric] = pd.to_numeric(z[metric], errors="coerce")
-                z = z.dropna(subset=[metric]).groupby(["event_id", "admin1"], dropna=False)[metric].mean().reset_index()
-                v = z.groupby("event_id", dropna=False)[metric].mean().dropna()
-            else:
-                v = pd.to_numeric(t[metric], errors="coerce").dropna()
+            v = pd.to_numeric(t[metric], errors="coerce").dropna()
             if v.empty: continue
             se = v.std(ddof=1) / np.sqrt(len(v)) if len(v) > 1 else np.nan
-            main_rows.append({"Hypothesis": hyp, "Metric": metric, "Effect": float(v.mean()), "CI_lo": float(v.mean() - 1.96 * se) if pd.notna(se) else np.nan, "CI_hi": float(v.mean() + 1.96 * se) if pd.notna(se) else np.nan, "Support": int(len(v)), "Aggregation": "event_equal", "Conclusion": "descriptive; inferential conclusion requires real event support"})
-        _write(pd.DataFrame(main_rows, columns=["Hypothesis", "Metric", "Effect", "CI_lo", "CI_hi", "Support", "Aggregation", "Conclusion"]), rt / "h1_h4_main_results.csv")
+            main_rows.append({"Hypothesis": hyp, "Metric": metric, "Effect": float(v.mean()), "CI_lo": float(v.mean() - 1.96 * se) if pd.notna(se) else np.nan, "CI_hi": float(v.mean() + 1.96 * se) if pd.notna(se) else np.nan, "Support": int(len(v)), "Conclusion": "descriptive; inferential conclusion requires real event support"})
+        _write(pd.DataFrame(main_rows, columns=["Hypothesis", "Metric", "Effect", "CI_lo", "CI_hi", "Support", "Conclusion"]), rt / "h1_h4_main_results.csv")
         # Explicit validation artifacts make the evidence boundary auditable.
         h4 = tables["h4_ips_loss_decomposition"]
         if h4.empty:
@@ -376,24 +366,8 @@ def run(cfg) -> dict:
                     planned = pd.DataFrame(rows).groupby(["month", "date", "admin1"], as_index=False).planned_power_hours.sum()
                     cal_net = cal_net.merge(planned, on=["month", "date", "admin1"], how="outer")
             _write(cal_net, fd / "fig03_power_internet_calendar.csv")
-            # Figure 8 uses the held-out attack curve, not the generic
-            # canonical-signal calendar.  Preserve event/state rows in the
-            # source table and apply the registered event-equal contract:
-            # state means within event, then equal event weights.
-            attack_curve = _read(rt / "f4_event_study.csv")
-            if not attack_curve.empty and {"rel_h", "reach"}.issubset(attack_curve.columns):
-                z = attack_curve.copy().rename(columns={"reach": "attack_reach"})
-                if {"event_id", "admin1"}.issubset(z.columns):
-                    z = (z.groupby(["event_id", "admin1", "rel_h"], dropna=False)
-                           .agg(attack_reach=("attack_reach", "mean"))
-                           .reset_index()
-                           .groupby(["event_id", "rel_h"], dropna=False)
-                           .agg(attack_reach=("attack_reach", "mean"), state_n=("admin1", "nunique"))
-                           .reset_index())
-                _write(z, fd / "fig08_attack_overall_signal.csv")
-            else:
-                _write(pd.DataFrame(columns=["event_id", "rel_h", "attack_reach", "state_n"]),
-                       fd / "fig08_attack_overall_signal.csv")
+            fingerprint = _read(rt / "f6_fingerprint.csv")
+            _write(fingerprint if not fingerprint.empty else c, fd / "fig08_attack_overall_signal.csv")
         else:
             _write(pd.DataFrame(columns=["month", "ips_outage_hours", "fbs_outage_hours"]), fd / "fig04_monthly_outage_hours.csv")
             _write(pd.DataFrame(columns=["month", "date", "ips_outage_hours", "fbs_outage_hours"]), fd / "fig03_power_internet_calendar.csv")

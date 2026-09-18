@@ -8,9 +8,6 @@ prefix's responders from being duplicated across groups.
 from __future__ import annotations
 
 import glob
-import hashlib
-import json
-from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -75,47 +72,6 @@ def score_parts(cfg: Config) -> list[str]:
     return sorted(glob.glob(str(cfg.out_dir("data_derived") / "ip_sensor_scores_parts" / "part_*.parquet")))
 
 
-def _cache_signature(cfg: Config, *, kind: str, label_path: Path,
-                     parts: list[str]) -> str:
-    """Fingerprint every input that can change frozen sensor membership.
-
-    A cache keyed only by its output path can silently reuse denominators after
-    a calibration/config/code change.  The runtime ``force`` flag is excluded
-    deliberately: it invalidates a cache for the current call, but must not
-    make the rebuilt artifact unstable on the next call.
-    """
-    raw = {k: v for k, v in cfg.raw.items() if k != "_runtime_flags"}
-
-    def file_meta(path: Path) -> dict:
-        if not path.exists():
-            return {"path": str(path), "exists": False}
-        st = path.stat()
-        return {"path": str(path), "size": st.st_size, "mtime_ns": st.st_mtime_ns}
-
-    def source_digest(path: Path) -> str | None:
-        if not path.exists():
-            return None
-        return hashlib.sha256(path.read_bytes()).hexdigest()
-
-    payload = {
-        "schema": "frozen-sensor-cache-v4",
-        "kind": kind,
-        "config": raw,
-        "labels": file_meta(label_path),
-        "parts": [file_meta(Path(p)) for p in parts],
-        # Changes in label construction or panel membership logic must force
-        # a rebuild even when an old output happens to retain the same size and
-        # timestamp (for example after an interrupted restore).
-        "code": {
-            "sensor_panels": source_digest(Path(__file__)),
-            "simple_calibration": source_digest(Path(__file__).with_name("simple_calibration.py")),
-            "exp_b_event_study": source_digest(Path(__file__).with_name("exp_b_event_study.py")),
-        },
-    }
-    encoded = json.dumps(payload, ensure_ascii=False, sort_keys=True, default=str).encode()
-    return hashlib.sha256(encoded).hexdigest()
-
-
 def _calibrated_membership(cfg: Config) -> pd.DataFrame:
     # Activity deciles and the formal support>=3 estimability flags are added
     # to the full label table after calibrated_sensors is aggregated.  Reading
@@ -139,27 +95,7 @@ def _calibrated_membership(cfg: Config) -> pd.DataFrame:
     return d[cols].drop_duplicates("dst_ip")
 
 
-def _attach_membership(d: pd.DataFrame, membership: pd.DataFrame) -> pd.DataFrame:
-    d = d.drop(columns=["in_B2"], errors="ignore")
-    add_cols = [c for c in membership.columns if c == "dst_ip" or c not in d.columns]
-    d = d.merge(membership[add_cols], on="dst_ip", how="left", validate="many_to_one")
-    activity_col = d["activity_estimable"] if "activity_estimable" in d else d.get("in_B1", pd.Series(False, index=d.index))
-    activity_ok = activity_col.fillna(False).astype(bool)
-    regional_ok = d.get("regional_eligible", pd.Series(1, index=d.index)).fillna(0).astype(bool)
-    d["in_ALL"] = activity_ok & regional_ok
-    d["in_ACTIVITY"] = d["in_ALL"].astype(bool) & d.get("activity_decile", pd.Series(pd.NA, index=d.index)).notna()
-    d["in_B2"] = False
-    reach_group = d.get("s_reach_quintile", d.get("s_reach_tier", pd.Series(pd.NA, index=d.index)))
-    rtt_group = d.get("s_rtt_quintile", d.get("s_rtt_tier", pd.Series(pd.NA, index=d.index)))
-    primary_ok = d.get("primary_estimable", pd.Series(False, index=d.index)).fillna(False).astype(bool)
-    d["in_S_REACH"] = d["in_ALL"].astype(bool) & primary_ok & reach_group.notna()
-    d["in_S_RTT"] = d["in_ALL"].astype(bool) & primary_ok & rtt_group.notna()
-    d["in_ACTIVITY_S_REACH"] = d["in_ACTIVITY"].astype(bool) & primary_ok & reach_group.notna()
-    return d
-
-
-def _read_sensor_part(cfg: Config, path: str, columns: list[str], membership: pd.DataFrame | None = None,
-                      attach: bool = True) -> pd.DataFrame:
+def _read_sensor_part(cfg: Config, path: str, columns: list[str]) -> pd.DataFrame:
     try:
         d = pd.read_parquet(path, columns=columns)
     except (KeyError, ValueError):
@@ -173,16 +109,32 @@ def _read_sensor_part(cfg: Config, path: str, columns: list[str], membership: pd
             d["activity_score_raw"] = pd.to_numeric(d.get("pN", 0), errors="coerce")
         if "activity_score_smoothed" not in d:
             d["activity_score_smoothed"] = d["activity_score_raw"]
-    if membership is None:
-        membership = _calibrated_membership(cfg)
-    if not attach:
-        return d
+    membership = _calibrated_membership(cfg)
+    d = d.drop(columns=["in_B2"], errors="ignore")
+    d = d.merge(membership, on="dst_ip", how="left", validate="many_to_one")
     # Sensitivity remains continuous; no attack-informed or thresholded B2 set
-    # is allowed to become the primary analysis sample.  The formal endpoint
-    # population is the common activity-estimable target universe within a
-    # mapped Ukrainian oblast.  Keep all membership derivation in one helper
-    # so the per-part and consolidated-label paths cannot drift apart.
-    return _attach_membership(d, membership)
+    # is allowed to become the primary analysis sample.
+    # The formal endpoint population is the common, activity-estimable target
+    # universe *within a mapped Ukrainian oblast*.  Country-only/unknown
+    # mappings remain useful for acquisition diagnostics but cannot enter the
+    # state-level H1--H4 estimand.
+    activity_col = d["activity_estimable"] if "activity_estimable" in d else d.get(
+        "in_B1", pd.Series(False, index=d.index))
+    activity_ok = activity_col.fillna(False).astype(bool)
+    regional_ok = d.get("regional_eligible", pd.Series(1, index=d.index)).fillna(0).astype(bool)
+    d["in_ALL"] = activity_ok & regional_ok
+    d["in_ACTIVITY"] = d["in_ALL"].astype(bool) & d.get(
+        "activity_decile", pd.Series(pd.NA, index=d.index)).notna()
+    d["in_B2"] = False
+    reach_group = d.get("s_reach_quintile", d.get("s_reach_tier", pd.Series(pd.NA, index=d.index)))
+    rtt_group = d.get("s_rtt_quintile", d.get("s_rtt_tier", pd.Series(pd.NA, index=d.index)))
+    # H2 uses the preregistered primary estimability contract, not merely the
+    # presence of a provisional quintile computed from one or two episodes.
+    primary_ok = d.get("primary_estimable", pd.Series(False, index=d.index)).fillna(False).astype(bool)
+    d["in_S_REACH"] = d["in_ALL"].astype(bool) & primary_ok & reach_group.notna()
+    d["in_S_RTT"] = d["in_ALL"].astype(bool) & primary_ok & rtt_group.notna()
+    d["in_ACTIVITY_S_REACH"] = d["in_ACTIVITY"].astype(bool) & primary_ok & reach_group.notna()
+    return d
 
 
 def choose_primary_method(cfg: Config) -> str:
@@ -193,27 +145,35 @@ def choose_primary_method(cfg: Config) -> str:
 
 def build_denominators(cfg: Config, parts: list[str]) -> pd.DataFrame:
     rows = []
-    d = load_sensor_labels(cfg, parts)
-    if d.empty:
-        return pd.DataFrame()
-    group_cols = ["prefix24", "target_asn", "target_country", "target_admin1", "network_stratum"]
-    for m in METHODS:
-        z = d[d.get(f"in_{m}", False)].copy()
-        if z.empty:
-            continue
-        z["sensitivity_stratum"] = "all"; z["sensitivity_value"] = np.nan
-        if m == "ACTIVITY":
-            z["sensitivity_stratum"] = z["activity_decile"].astype(str); z["sensitivity_value"] = pd.to_numeric(z["activity_score_raw"], errors="coerce")
-        elif m == "ACTIVITY_S_REACH":
-            z["sensitivity_stratum"] = z["activity_decile"].astype(str) + "|" + z["s_reach_quintile"].astype(str); z["sensitivity_value"] = pd.to_numeric(z["s_reach"], errors="coerce")
-        elif m == "S_REACH":
-            z["sensitivity_stratum"] = (z["s_reach_quintile"] if "s_reach_quintile" in z else z["s_reach_tier"]).astype(str); z["sensitivity_value"] = pd.to_numeric(z["s_reach"], errors="coerce")
-        elif m == "S_RTT":
-            z["sensitivity_stratum"] = (z["s_rtt_quintile"] if "s_rtt_quintile" in z else z["s_rtt_tier"]).astype(str); z["sensitivity_value"] = pd.to_numeric(z["s_rtt"], errors="coerce")
-        rows.append(z.groupby([*group_cols, "sensitivity_stratum"])
-                    .agg(sensor_n=("pN", "size"), expected_response_n=("pN", "sum"),
-                         sensitivity_value=("sensitivity_value", "mean"))
-                    .reset_index().assign(method=m))
+    cols = ["dst_ip", "prefix24", "target_asn", "target_country", "target_admin1",
+            "network_stratum", "pN", "activity_score_raw", "activity_score_smoothed",
+            "activity_estimable", "activity_score_raw", "activity_decile", "in_B1", "in_B2",
+            "regional_eligible"]
+    for p in pbar(parts, desc="sensor denominators", unit="part"):
+        d = _read_sensor_part(cfg, p, cols)
+        group_cols = ["prefix24", "target_asn", "target_country", "target_admin1", "network_stratum"]
+        for m in METHODS:
+            z = d[d.get(f"in_{m}", False)].copy()
+            if z.empty:
+                continue
+            z["sensitivity_stratum"] = "all"
+            z["sensitivity_value"] = np.nan
+            if m == "ACTIVITY":
+                z["sensitivity_stratum"] = z["activity_decile"].astype(str)
+                z["sensitivity_value"] = pd.to_numeric(z["activity_score_raw"], errors="coerce")
+            elif m == "ACTIVITY_S_REACH":
+                z["sensitivity_stratum"] = z["activity_decile"].astype(str) + "|" + z["s_reach_quintile"].astype(str)
+                z["sensitivity_value"] = pd.to_numeric(z["s_reach"], errors="coerce")
+            elif m == "S_REACH":
+                z["sensitivity_stratum"] = (z["s_reach_quintile"] if "s_reach_quintile" in z else z["s_reach_tier"]).astype(str)
+                z["sensitivity_value"] = pd.to_numeric(z["s_reach"], errors="coerce")
+            elif m == "S_RTT":
+                z["sensitivity_stratum"] = (z["s_rtt_quintile"] if "s_rtt_quintile" in z else z["s_rtt_tier"]).astype(str)
+                z["sensitivity_value"] = pd.to_numeric(z["s_rtt"], errors="coerce")
+            rows.append(z.groupby([*group_cols, "sensitivity_stratum"])
+                        .agg(sensor_n=("pN", "size"), expected_response_n=("pN", "sum"),
+                             sensitivity_value=("sensitivity_value", "mean"))
+                        .reset_index().assign(method=m))
     if not rows:
         return pd.DataFrame()
     out = (pd.concat(rows, ignore_index=True)
@@ -230,39 +190,7 @@ def build_denominators(cfg: Config, parts: list[str]) -> pd.DataFrame:
     return out
 
 
-def load_sensor_labels(cfg: Config, parts: list[str]) -> pd.DataFrame:
-    """Load the frozen endpoint membership once for all held-out events."""
-    dd = cfg.out_dir("data_derived")
-    cache = dd / "frozen_sensor_labels.parquet"
-    sig_path = cache.with_suffix(".signature")
-    membership = _calibrated_membership(cfg)
-    label_path = cfg.out_dir("results_tables") / "b1_full_sensitivity_labels.parquet"
-    signature = _cache_signature(cfg, kind="frozen_sensor_labels",
-                                 label_path=label_path, parts=parts)
-    if cache.exists() and sig_path.exists() and sig_path.read_text(encoding="utf-8").strip() == signature:
-        return pd.read_parquet(cache)
-    frames = []
-    cols = ["dst_ip", "prefix24", "target_asn", "target_country", "target_admin1",
-            "pN",
-            "network_stratum", "activity_score_raw", "activity_score_smoothed",
-            "activity_estimable", "activity_decile", "in_B1", "in_B2",
-            "regional_eligible"]
-    for p in pbar(parts, desc="load frozen sensor labels", unit="part"):
-        d = _read_sensor_part(cfg, p, cols, attach=False)
-        if not d.empty:
-            frames.append(d)
-    if not frames:
-        return pd.DataFrame()
-    out = _attach_membership(pd.concat(frames, ignore_index=True), membership)
-    out = out[out.in_ALL | out.in_B1 | out.in_B2 | out.in_ACTIVITY | out.in_S_REACH | out.in_S_RTT]
-    out = out.drop_duplicates(["dst_ip", "prefix24"])
-    out.to_parquet(cache, index=False)
-    sig_path.write_text(signature, encoding="utf-8")
-    return out
-
-
-def _event_responses(cfg: Config, ch: CHClient, event: pd.Series, parts: list[str],
-                     sensors: pd.DataFrame | None = None, *, compact: bool = False) -> pd.DataFrame:
+def _event_responses(cfg: Config, ch: CHClient, event: pd.Series, parts: list[str]) -> pd.DataFrame:
     logger = get_logger(cfg.out_dir("logs"))
     ev = Events(cfg)
     lo, hi = ev.event_window(event)
@@ -271,77 +199,46 @@ def _event_responses(cfg: Config, ch: CHClient, event: pd.Series, parts: list[st
     lo = lo - pd.Timedelta(days=_group_baseline_days(cfg))
     h = int(cfg.study["expected_cycle_interval_hours"])
     num = []
-    if sensors is None:
-        sensors = load_sensor_labels(cfg, parts)
-    if sensors.empty:
-        return pd.DataFrame(columns=["cycle_id", "analysis_unit_id", "method", "responders", "rtt_median"])
-    treated = Events.treated_admin1(event)
-    if treated and treated != ["ALL"] and str(event.scope_type).lower() != "national":
-        sensors = sensors[sensors.target_admin1.astype(str).isin(set(treated))].copy()
-    if sensors.empty:
-        return pd.DataFrame(columns=["cycle_id", "analysis_unit_id", "method", "responders", "rtt_median"])
-    prefixes = sensors.prefix24.drop_duplicates().astype(str).tolist()
-    # Reuse the configured ClickHouse prefix batch size.  The calibration and
-    # baseline stages already use runtime.prefix_batch (500 by default); a
-    # hard-coded 5000 here made each national-event response query materialize
-    # an unnecessarily large seven-day frame before it could be compacted.
-    batch_size = max(1, int(cfg.runtime.get("prefix_batch", 500)))
-    # Aggregate each ClickHouse batch before retaining the next one.  Keeping
-    # all per-IP response rows for a national event can occupy tens of GB even
-    # though the downstream estimand only needs cycle×state×group counts.
-    num = []
-    compact_key = ["cycle_id", "target_admin1", "network_stratum", "sensitivity_stratum", "group", "method"]
-    for start in range(0, len(prefixes), batch_size):
-        batch_prefixes = prefixes[start:start + batch_size]
+    cols = ["dst_ip", "prefix24", "target_asn", "target_country", "target_admin1",
+            "network_stratum", "activity_score_raw", "activity_score_smoothed",
+            "activity_estimable", "activity_score_raw", "activity_decile", "in_B1", "in_B2",
+            "regional_eligible"]
+    for p in pbar(parts, desc=f"sensor responses {event['event_id']}", unit="part"):
+        sensors = _read_sensor_part(cfg, p, cols)
+        sensors = sensors[sensors.in_ALL | sensors.in_B1 | sensors.in_B2 | sensors.in_ACTIVITY | sensors.in_S_REACH | sensors.in_S_RTT]
+        if sensors.empty:
+            continue
+        prefixes = sensors.prefix24.drop_duplicates().astype(str).tolist()
         r = _query_response_window(cfg, ch, event_id=str(event["event_id"]), lo=lo, hi=hi,
-                                   prefixes=batch_prefixes, cycle_seconds=h * 3600, logger=logger)
+                                   prefixes=prefixes, cycle_seconds=h * 3600, logger=logger)
         if r.empty:
             continue
-        sb = sensors[sensors.prefix24.astype(str).isin(set(batch_prefixes))]
-        r = r.merge(sb, on=["dst_ip", "prefix24"], how="inner")
-        if r.empty:
-            continue
+        r = r.merge(sensors, on=["dst_ip", "prefix24"], how="inner")
         for m in METHODS:
             z = r[r.get(f"in_{m}", False)].copy()
-            if z.empty:
-                continue
-            z["sensitivity_stratum"] = "all"
-            if m == "ACTIVITY":
-                z["sensitivity_stratum"] = z["activity_decile"].astype(str)
-            elif m == "ACTIVITY_S_REACH":
-                z["sensitivity_stratum"] = z["activity_decile"].astype(str) + "|" + z["s_reach_quintile"].astype(str)
-            elif m == "S_REACH":
-                z["sensitivity_stratum"] = (z["s_reach_quintile"] if "s_reach_quintile" in z else z["s_reach_tier"]).astype(str)
-            elif m == "S_RTT":
-                z["sensitivity_stratum"] = (z["s_rtt_quintile"] if "s_rtt_quintile" in z else z["s_rtt_tier"]).astype(str)
-            z["group"] = (z.network_stratum.astype(str) + "|" + z.target_asn.astype(str) + "|" + z.target_country.astype(str)
-                          + "|" + z.target_admin1.astype(str) + "|" + z.sensitivity_stratum.astype(str))
-            z["analysis_unit_id"] = z.prefix24.astype(str) + "|" + z.group.astype(str)
-            key = ["cycle_id", "prefix24", "target_asn", "target_country", "target_admin1", "network_stratum",
-                   "sensitivity_stratum", "group", "analysis_unit_id"]
-            if compact:
-                # Lightweight ExpB only needs state×cycle×group numerators;
-                # dropping prefix-level keys here prevents the national event
-                # from retaining millions of redundant rows across batches.
-                key = ["cycle_id", "target_admin1", "network_stratum", "sensitivity_stratum", "group"]
-            num.append(z.groupby(key).agg(
-                responders=("dst_ip", "nunique"), rtt_median=("rtt_ms", "median"))
-                       .reset_index().assign(method=m))
-        del r, sb
-        if compact and len(num) >= 8:
-            # Keep the compact accumulator bounded.  Without periodic
-            # consolidation, the final concat still retains one copy per
-            # prefix batch and recreates the memory spike we are avoiding.
-            merged = pd.concat(num, ignore_index=True)
-            num = [merged.groupby(compact_key, dropna=False)
-                   .agg(responders=("responders", "sum"), rtt_median=("rtt_median", "median"))
-                   .reset_index()]
+            if not z.empty:
+                z["sensitivity_stratum"] = "all"
+                if m == "ACTIVITY":
+                    z["sensitivity_stratum"] = z["activity_decile"].astype(str)
+                elif m == "ACTIVITY_S_REACH":
+                    z["sensitivity_stratum"] = z["activity_decile"].astype(str) + "|" + z["s_reach_quintile"].astype(str)
+                elif m == "S_REACH":
+                    z["sensitivity_stratum"] = (z["s_reach_quintile"] if "s_reach_quintile" in z else z["s_reach_tier"]).astype(str)
+                elif m == "S_RTT":
+                    z["sensitivity_stratum"] = (z["s_rtt_quintile"] if "s_rtt_quintile" in z else z["s_rtt_tier"]).astype(str)
+                z["group"] = (z.network_stratum.astype(str) + "|" + z.target_asn.astype(str) + "|" + z.target_country.astype(str)
+                              + "|" + z.target_admin1.astype(str) + "|" + z.sensitivity_stratum.astype(str))
+                z["analysis_unit_id"] = z.prefix24.astype(str) + "|" + z.group.astype(str)
+                key = ["cycle_id", "prefix24", "target_asn", "target_country", "target_admin1", "network_stratum",
+                       "sensitivity_stratum", "group", "analysis_unit_id"]
+                num.append(z.groupby(key).agg(
+                    responders=("dst_ip", "nunique"), rtt_median=("rtt_ms", "median"))
+                           .reset_index().assign(method=m))
     if not num:
         return pd.DataFrame(columns=["cycle_id", "analysis_unit_id", "method", "responders", "rtt_median"])
-    key = ["cycle_id", "target_admin1", "network_stratum", "sensitivity_stratum", "group", "method"] if compact else [
-        "cycle_id", "prefix24", "target_asn", "target_country", "target_admin1", "network_stratum",
-        "sensitivity_stratum", "group", "analysis_unit_id", "method"]
-    return (pd.concat(num, ignore_index=True).groupby(key, dropna=False)
+    key = ["cycle_id", "prefix24", "target_asn", "target_country", "target_admin1", "network_stratum",
+           "sensitivity_stratum", "group", "analysis_unit_id", "method"]
+    return (pd.concat(num, ignore_index=True).groupby(key)
             .agg(responders=("responders", "sum"), rtt_median=("rtt_median", "median")).reset_index())
 
 

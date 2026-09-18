@@ -292,6 +292,55 @@ def event_cycle_sets(event: pd.Series, segments: pd.DataFrame, grid: pd.DataFram
             "outage": sorted(set(outage)), "post": sorted(set(post))}
 
 
+def episode_cycle_sets(events: pd.DataFrame, segments: pd.DataFrame, grid: pd.DataFrame,
+                       cfg: Config, all_outage_ids: set[int]) -> dict[str, list[int]]:
+    """Build one cycle set for an entire frozen episode.
+
+    ``window_id`` is an exposure-window identity, not an independent unit.
+    Multiple windows in one ``episode_id`` are unioned at the cycle-ID level;
+    clear gaps remain absent.  Controls are selected once from the union, so a
+    normal cycle cannot receive extra weight merely because an episode has
+    multiple windows.
+    """
+    scfg = cfg.simple_calibration
+    cycle_h = float(cfg.study["expected_cycle_interval_hours"])
+    outage: set[int] = set()
+    clear: set[int] = set()
+    for _, window_segments in segments.groupby("event_id", sort=False):
+        outage.update(_overlap_cycle_ids(
+            grid, window_segments, cycle_h=cycle_h,
+            min_overlap_fraction=float(scfg["min_cycle_overlap_fraction"]),
+            buffer_minutes=int(scfg["transition_buffer_minutes"])))
+        clear.update(_overlap_cycle_ids(
+            grid, window_segments, cycle_h=cycle_h,
+            min_overlap_fraction=float(scfg["min_cycle_overlap_fraction"]),
+            buffer_minutes=0, schedule_positive=0))
+    if not outage:
+        return {k: [] for k in ("normal", "clear", "pre", "outage", "post")}
+    mt = pd.to_datetime(grid.measure_time, utc=True)
+    complete = grid.is_complete.astype(bool)
+    start = pd.to_datetime(events.start_utc, utc=True).min()
+    end = pd.to_datetime(events.end_utc, utc=True).max()
+    pre = grid.loc[complete & mt.ge(start - pd.Timedelta(hours=float(scfg["pre_window_h"]))) & mt.lt(start),
+                   "cycle_id"].astype("int64").tolist()
+    post = grid.loc[complete & mt.ge(end) & mt.lt(end + pd.Timedelta(hours=float(scfg["post_window_h"]))),
+                    "cycle_id"].astype("int64").tolist()
+    slots = set(slot_of(grid.loc[grid.cycle_id.isin(outage), "measure_time"], int(cycle_h)).astype(int))
+    attack_clean = Events(cfg).clean_baseline_mask(grid)
+    controls = grid.loc[complete & attack_clean & ~grid.cycle_id.isin(all_outage_ids)].copy()
+    controls["slot"] = slot_of(controls.measure_time, int(cycle_h))
+    controls = controls[controls.slot.isin(slots)]
+    if controls.empty:
+        normal = []
+    else:
+        midpoint = start + (end - start) / 2
+        controls["distance"] = (pd.to_datetime(controls.measure_time, utc=True) - midpoint).abs()
+        need = max(len(outage), 1) * int(scfg["normal_cycles_per_outage_cycle"])
+        normal = controls.sort_values(["distance", "measure_time"]).head(need).cycle_id.astype("int64").tolist()
+    return {"normal": sorted(set(normal)), "clear": sorted(clear), "pre": sorted(set(pre)),
+            "outage": sorted(outage), "post": sorted(set(post))}
+
+
 def score_event_rows(raw: pd.DataFrame, cycle_sets: dict[str, list[int]], cfg: Config) -> pd.DataFrame:
     """Score one state-level planned-outage event without outcome thresholding."""
     d = raw.copy()
@@ -413,19 +462,58 @@ def aggregate_sensors(candidates: pd.DataFrame) -> pd.DataFrame:
     identity = [c for c in ("dst_ip", "prefix24", "target_admin1", "target_city",
                             "target_isp_domain", "target_asn", "network_stratum") if c in d]
     # Day windows inside one continuous restriction episode do not add
-    # independent evidence.  Collapse them before estimating each IP score.
+    # independent evidence.  Pool cycle counts within an episode first; only
+    # the resulting episode-level score enters the episode-equal mean.
     def summarize(frame: pd.DataFrame, episode_column: str, suffix: str) -> pd.DataFrame:
         if frame.empty:
             return pd.DataFrame(columns=identity)
         if episode_column not in frame:
             frame[episode_column] = frame["event_id"]
         frame["episode_id"] = frame[episode_column].replace("", pd.NA).fillna(frame["event_id"])
-        episode = (frame.groupby([*identity, "episode_id"], as_index=False)
-                   .agg(s_reach_event=("s_reach_event", "mean"), s_rtt_event=("s_rtt_event", "mean"),
-                        s_reach_explicit_clear=("s_reach_explicit_clear", "mean"),
-                        s_rtt_explicit_clear=("s_rtt_explicit_clear", "mean"),
-                        rtt_estimable=("rtt_estimable", "sum"), p_normal=("p_normal", "mean"),
-                        p_outage=("p_outage", "mean"), drop=("drop", "mean"), recovery=("recovery", "mean")))
+        grouped = frame.groupby([*identity, "episode_id"], as_index=False)
+        # Formal reachability pooling uses response counts and denominators,
+        # not a mean of window-level rates.  This is also robust to legacy
+        # cached window rows: a two-hour window and a ten-hour window contribute
+        # their actual cycle counts, rather than 50/50 window weights.
+        agg_spec = {}
+        for phase in ("normal", "outage", "clear", "pre", "post"):
+            xcol, pcol, ncol = f"x_{phase}", f"p_{phase}", f"n_{phase}"
+            if xcol in frame:
+                agg_spec[xcol] = (xcol, "sum")
+            elif pcol in frame:
+                agg_spec[pcol] = (pcol, "mean")
+            if ncol in frame:
+                agg_spec[ncol] = (ncol, "sum")
+        agg_spec["rtt_estimable"] = ("rtt_estimable", "sum") if "rtt_estimable" in frame else ("s_reach_event", "size")
+        has_rtt_components = "rtt_normal" in frame and "rtt_outage" in frame
+        if has_rtt_components:
+            agg_spec["rtt_normal"] = ("rtt_normal", "mean")
+            agg_spec["rtt_outage"] = ("rtt_outage", "mean")
+            agg_spec["rtt_clear"] = ("rtt_clear", "mean") if "rtt_clear" in frame else ("s_rtt_explicit_clear", "mean")
+        else:
+            agg_spec["s_rtt_event"] = ("s_rtt_event", "mean")
+            agg_spec["s_rtt_explicit_clear"] = ("s_rtt_explicit_clear", "mean")
+        episode = grouped.agg(**agg_spec)
+        has_counts = all(f"x_{phase}" in frame and f"n_{phase}" in frame
+                         for phase in ("normal", "outage", "clear", "pre", "post"))
+        for phase in ("normal", "outage", "clear", "pre", "post"):
+            xcol, ncol = f"x_{phase}", f"n_{phase}"
+            pcol = f"p_{phase}"
+            if has_counts and xcol in episode and ncol in episode:
+                denom = pd.to_numeric(episode[ncol], errors="coerce")
+                episode[pcol] = pd.to_numeric(episode[xcol], errors="coerce").div(denom.where(denom.gt(0)))
+            elif pcol not in episode:
+                episode[pcol] = np.nan
+        episode["s_reach_event"] = episode.p_normal - episode.p_outage
+        episode["s_reach_explicit_clear"] = episode.p_clear - episode.p_outage
+        if "rtt_normal" in episode and "rtt_outage" in episode:
+            episode["s_rtt_event"] = (episode.rtt_outage - episode.rtt_normal) / episode.rtt_normal.where(episode.rtt_normal.gt(0))
+            episode["s_rtt_explicit_clear"] = (episode.rtt_outage - episode.rtt_clear) / episode.rtt_clear.where(episode.rtt_clear.gt(0))
+        if "n_clear" in episode:
+            episode.loc[episode.n_clear.le(0), "s_reach_explicit_clear"] = np.nan
+            episode.loc[episode.n_clear.le(0), "s_rtt_explicit_clear"] = np.nan
+        episode["drop"] = episode.p_pre - episode.p_outage
+        episode["recovery"] = episode.p_post - episode.p_outage
         episode = episode.rename(columns={"episode_id": episode_column})
         out = (episode.groupby(identity, as_index=False)
                 .agg(support_episode_n=(episode_column, "nunique"),
@@ -514,43 +602,71 @@ def run(cfg: Config, exposure_view: Path | None = None) -> dict:
     cache = dd / "simple_calibration" / "event_sensitivity_v5_excel"; cache.mkdir(parents=True, exist_ok=True)
     force = bool(cfg.raw.get("_runtime_flags", {}).get("force_stage_recompute", False))
     audit_rows, candidate_parts = [], []
+    audit_by_event: dict[str, dict] = {}
     with step("Reviewed Excel planned-outage calibration", logger):
         with CHClient(cfg) as ch:
-            for index, event in events.iterrows():
-                event_id = str(event.event_id); event_segments = segments[segments.event_id.astype(str).eq(event_id)]
-                cycles = event_cycle_sets(event, event_segments, grid, cfg, all_outage_ids)
-                region_targets = targets[targets.target_admin1.eq(event.geo_name)]
-                reasons = []
-                if region_targets.empty: reasons.append("no_activity_supported_ip_for_state")
-                if len(cycles["outage"]) < int(cfg.simple_calibration["min_outage_cycles"]): reasons.append("insufficient_outage_cycles")
-                if len(cycles["normal"]) < int(cfg.simple_calibration["min_normal_cycles"]): reasons.append("insufficient_normal_controls")
-                estimable = not reasons; selected = pd.DataFrame(); path = cache / f"{event_id}.parquet"
-                if estimable:
-                    if path.exists() and path.stat().st_size and not force: selected = pd.read_parquet(path)
-                    else:
-                        raw = _query_event(ch, cfg, region_targets, cycles)
-                        if not raw.empty:
-                            scored = score_event_rows(raw, cycles, cfg)
-                            scored["event_id"] = event_id
-                            for col in ("use_main", "use_augmented", "episode_id_main", "episode_id_augmented", "evidence_tier"):
-                                scored[col] = event[col]
-                            selected = scored[scored.is_event_candidate].copy()
-                        selected.to_parquet(path, index=False)
-                    # Old cache parts are still valid expensive query results;
-                    # restore immutable event metadata before episode reduction.
-                    if not selected.empty:
-                        selected["event_id"] = event_id
-                        for col in ("use_main", "use_augmented", "episode_id_main", "episode_id_augmented", "evidence_tier"):
-                            selected[col] = event[col]
-                if not selected.empty: candidate_parts.append(selected)
-                audit_rows.append({"event_id": event_id, "geo_name": event.geo_name, "event_date": event.event_date,
-                    "use_main": event.use_main, "use_augmented": event.use_augmented, "episode_id_main": event.episode_id_main,
-                    "episode_id_augmented": event.episode_id_augmented, "normal_cycle_n": len(cycles["normal"]),
-                    "outage_cycle_n": len(cycles["outage"]), "explicit_clear_cycle_n": len(cycles["clear"]),
-                    "pre_cycle_n": len(cycles["pre"]), "post_cycle_n": len(cycles["post"]),
-                    "candidate_ip_pool_n": int(region_targets.dst_ip.nunique()), "scored_stable_ip_n": int(selected.dst_ip.nunique()) if not selected.empty else 0,
-                    "sensitivity_estimable": int(estimable), "recovery_estimable": int(len(cycles["post"]) >= int(cfg.simple_calibration["min_post_cycles"])),
-                    "not_estimable_reason": "|".join(reasons), "measurement_start_utc": cfg.study["measurement_start_utc"]})
+            for panel, flag, episode_col in (("primary", "use_primary", "episode_id_main"),
+                                              ("augmented", "use_augmented", "episode_id_augmented")):
+                panel_events = events[events[flag].astype(bool)].copy()
+                for (geo_name, episode_id), group in panel_events.groupby(["geo_name", episode_col], sort=True):
+                    event_ids = group.event_id.astype(str).tolist()
+                    event_segments = segments[segments.event_id.astype(str).isin(event_ids)]
+                    cycles = episode_cycle_sets(group, event_segments, grid, cfg, all_outage_ids)
+                    region_targets = targets[targets.target_admin1.eq(geo_name)]
+                    reasons = []
+                    if region_targets.empty: reasons.append("no_activity_supported_ip_for_state")
+                    if len(cycles["outage"]) < int(cfg.simple_calibration["min_outage_cycles"]): reasons.append("insufficient_outage_cycles")
+                    if len(cycles["normal"]) < int(cfg.simple_calibration["min_normal_cycles"]): reasons.append("insufficient_normal_controls")
+                    estimable = not reasons; selected = pd.DataFrame()
+                    cache_key = f"{panel}__episode__{episode_id}"
+                    path = cache / f"{cache_key}.parquet"
+                    if estimable:
+                        if path.exists() and path.stat().st_size and not force:
+                            selected = pd.read_parquet(path)
+                        else:
+                            raw = _query_event(ch, cfg, region_targets, cycles)
+                            if not raw.empty:
+                                selected = score_event_rows(raw, cycles, cfg)
+                                selected = selected[selected.is_event_candidate].copy()
+                            selected.to_parquet(path, index=False)
+                        if not selected.empty:
+                            selected["event_id"] = f"{panel}::{episode_id}"
+                            selected["use_main"] = int(panel == "primary")
+                            selected["use_augmented"] = int(panel == "augmented")
+                            selected["episode_id_main"] = episode_id if panel == "primary" else ""
+                            selected["episode_id_augmented"] = episode_id if panel == "augmented" else ""
+                            selected["evidence_tier"] = ";".join(sorted(group.evidence_level.astype(str).unique()))
+                            selected["episode_cycle_pool"] = True
+                            candidate_parts.append(selected)
+                    for _, event in group.iterrows():
+                        event_id = str(event.event_id)
+                        rec = audit_by_event.setdefault(event_id, {"event_id": event_id, "geo_name": event.geo_name,
+                            "event_date": event.event_date, "use_main": event.use_main, "use_augmented": event.use_augmented,
+                            "episode_id_main": event.episode_id_main, "episode_id_augmented": event.episode_id_augmented,
+                            "measurement_start_utc": cfg.study["measurement_start_utc"]})
+                        prefix = panel
+                        rec.update({f"{prefix}_normal_cycle_n": len(cycles["normal"]),
+                                    f"{prefix}_outage_cycle_n": len(cycles["outage"]),
+                                    f"{prefix}_explicit_clear_cycle_n": len(cycles["clear"]),
+                                    f"{prefix}_pre_cycle_n": len(cycles["pre"]),
+                                    f"{prefix}_post_cycle_n": len(cycles["post"]),
+                                    f"{prefix}_candidate_ip_pool_n": int(region_targets.dst_ip.nunique()),
+                                    f"{prefix}_scored_ip_n": int(selected.dst_ip.nunique()) if not selected.empty else 0,
+                                    f"{prefix}_sensitivity_estimable": int(estimable),
+                                    f"{prefix}_recovery_estimable": int(len(cycles["post"]) >= int(cfg.simple_calibration["min_post_cycles"])),
+                                    f"{prefix}_not_estimable_reason": "|".join(reasons),
+                                    f"{prefix}_episode_scored_once": True})
+            audit_rows = list(audit_by_event.values())
+            # Keep legacy audit column names while exposing panel-specific
+            # cycle pools.  Formal scoring itself uses the panel-specific
+            # fields above, never these compatibility aliases.
+            for rec in audit_rows:
+                panel = "primary" if int(rec.get("use_main", 0)) else "augmented"
+                for stem in ("normal_cycle_n", "outage_cycle_n", "explicit_clear_cycle_n",
+                             "pre_cycle_n", "post_cycle_n", "candidate_ip_pool_n",
+                             "scored_ip_n", "sensitivity_estimable", "recovery_estimable",
+                             "not_estimable_reason"):
+                    rec[stem] = rec.get(f"{panel}_{stem}")
     candidates = pd.concat(candidate_parts, ignore_index=True) if candidate_parts else pd.DataFrame()
     # Explicit research-plan artifacts.  These are separate from the legacy
     # B1-named files so downstream paper code cannot confuse diagnostics with
