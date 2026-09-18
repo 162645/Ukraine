@@ -1,0 +1,10 @@
+section,metric,estimate,CI_low,CI_high,source,predictor,outcome,model,cluster,OR,p_value
+main discrimination,Power ROC-AUC,0.8736917682031422,0.8643868865683791,0.8824408575079631,power_availability_infrastructure_final_validation_v2/tables/TABLE_F07_final_auc.csv,,,,,,
+main discrimination,Power Average Precision (AP),0.0191182419427553,,,power_availability_infrastructure_final_validation_v2/tables/TABLE_F07_final_auc.csv,,,,,,
+main discrimination,Normal ROC-AUC,0.8688668771236475,0.8592262924188752,0.8780420697901596,power_availability_infrastructure_final_validation_v2/tables/TABLE_F07_final_auc.csv,,,,,,
+main discrimination,Normal Average Precision (AP),0.0199215502685467,,,power_availability_infrastructure_final_validation_v2/tables/TABLE_F07_final_auc.csv,,,,,,
+ITDK temporal snapshot robustness,2024-02 Power ROC-AUC,0.8501309186504,0.8417242479822515,0.859081560981724,"TABLE_F10_itdk_release_final.csv; /24 cluster bootstrap, B=200",,,,,,
+ITDK temporal snapshot robustness,2024-08 Power ROC-AUC,0.8736917682031422,0.8652321230051087,0.8812684535666423,"TABLE_F10_itdk_release_final.csv; /24 cluster bootstrap, B=200",,,,,,
+ITDK temporal snapshot robustness,2025-03 Power ROC-AUC,0.8746025084653242,0.8661077546534851,0.8813615702201412,"TABLE_F10_itdk_release_final.csv; /24 cluster bootstrap, B=200",,,,,,
+primary continuous association,Primary continuous association,3.160034001062481,19.332289897313395,28.7400394278832,power_availability_infrastructure_v1/tables/TABLE_04_primary_regression.csv,Power-window availability,Observed ITDK 2024-08 transit evidence,Binomial GEE,prefix24; exchangeable,23.571397367997832,3.054089187248668e-214
+method-status note,Period × ITDK interaction,,,,power_availability_infrastructure_final_validation_v2/tables/TABLE_F04_interaction_model.csv,,,NOT ESTIMABLE / NOT GENERATED,,,
