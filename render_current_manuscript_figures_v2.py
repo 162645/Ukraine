@@ -13,6 +13,7 @@ import json
 import re
 import shutil
 import subprocess
+import textwrap
 from pathlib import Path
 
 import matplotlib
@@ -111,20 +112,20 @@ def render_design(outdir: Path, zh: bool) -> None:
     def arr(x1, y1, x2, y2):
         ax.add_patch(FancyArrowPatch((x1,y1),(x2,y2), arrowstyle="-|>", mutation_scale=11, linewidth=.9, color="#52616b"))
     if zh:
-        title="当前论文研究设计与证据边界"; lane_a=["乌克兰 IPv4 主动测量","2 小时测量周期","ICMP 响应"]; lane_b=["已核验电力事件记录","停电窗口定义","正常时期对照窗口"]; lane_c=["拓扑证据","CAIDA ITDK 中间跳证据","CAIDA 路由器成员证据","自有 traceroute 中间跳证据"]; avail=["ICMP 响应 + 窗口定义","逐 IP 可达率","停电窗口可达率 / 正常时期可达率"]; final=["可达率 + 拓扑证据","关联 / 判别","跨拓扑时间快照稳健性"]; notes=["可达率 = ICMP 测量可达性，不是物理在线时间","ITDK T=1 = 观察到中间跳证据；T=0 = 未观察到 T 证据，不等于确认不存在基础设施","停电窗口 = 州级/事件级已核验窗口，不等于确认 IP 级物理断电"]
+        title="当前论文研究设计与证据边界"; lane_a=["乌克兰 IPv4 主动测量","2 小时测量周期","ICMP 响应"]; lane_b=["已核验电力事件记录","停电窗口定义","正常时期对照窗口"]; lane_c=["拓扑证据","CAIDA ITDK 中间跳证据","CAIDA 路由器成员证据","自有 traceroute 中间跳证据"]; avail=["ICMP 响应 + 窗口定义","逐 IP 可达率","停电窗口可达率 / 正常时期可达率"]; final=["可达率 + 拓扑证据","关联 / 判别","跨拓扑时间快照稳健性"]; notes=["可达率 = ICMP 测量可达性\n不是物理在线时间","ITDK T=1 = 观察到中间跳证据\nT=0 = 未观察到 T 证据\n不等于确认不存在基础设施","停电窗口 = 州级/事件级已核验窗口\n不等于确认 IP 级物理断电"]
     else:
-        title="Current Manuscript Study Design and Evidence Boundaries"; lane_a=["Ukraine IPv4 active measurement","2-hour measurement cycles","ICMP responses"]; lane_b=["Verified power-event records","Power-window definition","Normal-period comparison windows"]; lane_c=["Topology evidence","CAIDA ITDK transit-hop evidence","CAIDA router membership evidence","Own traceroute intermediate-hop evidence"]; avail=["ICMP responses + window definitions","Per-IP availability","Power-window / normal-period availability"]; final=["Availability + topology evidence","Association / discrimination","Temporal-snapshot robustness"]; notes=["Availability = ICMP measurement reachability, not physical uptime","ITDK T=1 = observed transit-hop evidence; T=0 = no observed T evidence, not confirmed non-infrastructure","Power window = verified state/event-level window, not confirmed IP-level physical power loss"]
+        title="Current Manuscript Study Design and Evidence Boundaries"; lane_a=["Ukraine IPv4 active measurement","2-hour measurement cycles","ICMP responses"]; lane_b=["Verified power-event records","Power-window definition","Normal-period comparison windows"]; lane_c=["Topology evidence","CAIDA ITDK transit-hop evidence","CAIDA router membership evidence","Own traceroute intermediate-hop evidence"]; avail=["ICMP responses + window definitions","Per-IP availability","Power-window / normal-period availability"]; final=["Availability + topology evidence","Association / discrimination","Temporal-snapshot robustness"]; notes=["Availability = ICMP measurement reachability\nnot physical uptime","ITDK T=1 = observed transit-hop evidence\nT=0 = no observed T evidence\nnot confirmed non-infrastructure","Power window = verified state/event-level window\nnot confirmed IP-level physical power loss"]
     for i,t in enumerate(lane_a): box(.035,.82-i*.105,.22,.065,t,"#dceaf7")
     for i,t in enumerate(lane_b): box(.30,.82-i*.105,.22,.065,t,"#fff2cc")
     for i,t in enumerate(lane_c): box(.565,.82-i*.095,.25,.065,t,"#e4dfec",7.0)
-    for i in range(2): arr(.145,.61-i*.105,.145,.82-(i+1)*.105)
-    for i in range(2): arr(.41,.61-i*.105,.41,.82-(i+1)*.105)
-    for i in range(3): arr(.69,.61-i*.095,.69,.82-(i+1)*.095)
+    for i in range(2): arr(.145,.82-i*.105,.145,.78-i*.105)
+    for i in range(2): arr(.41,.82-i*.105,.41,.78-i*.105)
+    for i in range(3): arr(.69,.82-i*.095,.69,.78-i*.095)
     box(.17,.40,.38,.075,avail[0],"#fce4d6"); box(.17,.285,.38,.075,avail[1],"#fce4d6"); box(.17,.17,.38,.075,avail[2],"#fce4d6")
     arr(.145,.61,.24,.475); arr(.41,.61,.40,.475); arr(.36,.40,.36,.36); arr(.36,.285,.36,.25)
     box(.62,.40,.30,.075,final[0],"#d9ead3"); box(.62,.285,.30,.075,final[1],"#d9ead3"); box(.62,.17,.30,.075,final[2],"#d9ead3")
-    arr(.55,.205,.62,.205); arr(.69,.335,.69,.40); arr(.69,.285,.69,.25); arr(.69,.61,.69,.475); arr(.69,.475,.77,.475)
-    ax.text(.035,.095,notes[0],fontsize=7.0,color="#303030",va="top"); ax.text(.355,.095,notes[1],fontsize=7.0,color="#303030",va="top",ha="center"); ax.text(.72,.095,notes[2],fontsize=7.0,color="#303030",va="top",ha="center")
+    arr(.55,.205,.62,.205); arr(.69,.40,.69,.36); arr(.69,.285,.69,.25); arr(.69,.535,.69,.475); arr(.69,.475,.77,.475)
+    ax.text(.035,.095,notes[0],fontsize=6.6,color="#303030",va="top"); ax.text(.355,.095,notes[1],fontsize=6.6,color="#303030",va="top",ha="center"); ax.text(.72,.095,notes[2],fontsize=6.6,color="#303030",va="top",ha="center")
     ax.text(.5,.975,title,ha="center",va="top",fontsize=13,fontweight="bold")
     save_triplet(fig,outdir/("figure1_study_design_zh" if zh else "figure1_study_design_en"))
 
@@ -145,7 +146,7 @@ def render_current(root: Path) -> Path:
     for lang in ("zh","en"):
         src=v3/f"figures/{lang}/figure31_event_timeline.svg"; dst=out/("main_zh" if lang=="zh" else "main_en")/f"figure2_event_timeline_{lang}.svg"; text=src.read_text(encoding="utf-8")
         title="已核验电力与战争相关事件的时间分布" if lang=="zh" else "Timeline of Verified Power- and War-Related Events"; ptxt="电力相关事件" if lang=="zh" else "Power-related event"; wtxt="战争相关事件" if lang=="zh" else "War-related event"
-        overlay=(f'<g id="current_manuscript_overlay"><rect x="0" y="0" width="929.6" height="32" fill="white"/><text x="465" y="17" text-anchor="middle" font-size="13" font-family="WenQuanYi Zen Hei, DejaVu Sans, sans-serif">{title}</text><rect x="560" y="4" width="350" height="23" fill="white" fill-opacity=".97" stroke="#bbbbbb" stroke-width=".4"/><circle cx="580" cy="15" r="3.5" fill="#d7301f"/><text x="590" y="18" font-size="8" font-family="WenQuanYi Zen Hei, DejaVu Sans, sans-serif">{ptxt}</text><path d="M 745 11 L 753 19 M 753 11 L 745 19" stroke="#2c7fb8" stroke-width="1.5"/><text x="760" y="18" font-size="8" font-family="WenQuanYi Zen Hei, DejaVu Sans, sans-serif">{wtxt}</text></g>')
+        overlay=(f'<g id="current_manuscript_overlay"><rect x="0" y="0" width="929.6" height="32" fill="white"/><text x="300" y="17" text-anchor="middle" font-size="11" font-family="WenQuanYi Zen Hei, DejaVu Sans, sans-serif">{title}</text><rect x="600" y="4" width="310" height="23" fill="white" fill-opacity=".97" stroke="#bbbbbb" stroke-width=".4"/><circle cx="615" cy="15" r="3.5" fill="#d7301f"/><text x="625" y="18" font-size="8" font-family="WenQuanYi Zen Hei, DejaVu Sans, sans-serif">{ptxt}</text><path d="M 755 11 L 763 19 M 763 11 L 755 19" stroke="#2c7fb8" stroke-width="1.5"/><text x="770" y="18" font-size="8" font-family="WenQuanYi Zen Hei, DejaVu Sans, sans-serif">{wtxt}</text></g>')
         dst.write_text(text.replace("</svg>",overlay+"</svg>"),encoding="utf-8"); convert_svg(dst,dst.with_suffix("")); audit.append({"language":lang,"source":"power_availability_infrastructure_scientific_closure_v3/figures/"+lang+"/figure31_event_timeline.svg","result":"PASS"})
     pd.DataFrame(audit).to_csv(out/"qa/FIGURE2_GEOMETRY_AUDIT.csv",index=False)
 
