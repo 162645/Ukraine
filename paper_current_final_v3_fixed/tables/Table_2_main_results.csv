@@ -1,0 +1,9 @@
+Result,Predictor / signal,Outcome,Model,Estimate / AUC,OR (0→1),95% OR CI,AP,p,Source
+Main discrimination,Power-window availability,Observed ITDK 2024-08 transit evidence,ROC-AUC,"0.874 [0.864, 0.882]",—,—,—,—,TABLE_F07_final_auc.csv
+Main discrimination,Power-window availability,Observed ITDK 2024-08 transit evidence,Average Precision (AP),—,—,—,0.019,—,TABLE_F07_final_auc.csv
+Main discrimination,Normal-period availability,Observed ITDK 2024-08 transit evidence,ROC-AUC,"0.869 [0.859, 0.878]",—,—,—,—,TABLE_F07_final_auc.csv
+Main discrimination,Normal-period availability,Observed ITDK 2024-08 transit evidence,Average Precision (AP),—,—,—,0.020,—,TABLE_F07_final_auc.csv
+ITDK temporal snapshot robustness,Power-window availability,Observed ITDK transit evidence,ROC-AUC; ITDK 2024-02,"0.850 [0.842, 0.859]",—,—,—,—,"TABLE_F10_itdk_release_final.csv; /24 cluster bootstrap, B=200"
+ITDK temporal snapshot robustness,Power-window availability,Observed ITDK transit evidence,ROC-AUC; ITDK 2024-08,"0.874 [0.865, 0.881]",—,—,—,—,"TABLE_F10_itdk_release_final.csv; /24 cluster bootstrap, B=200"
+ITDK temporal snapshot robustness,Power-window availability,Observed ITDK transit evidence,ROC-AUC; ITDK 2025-03,"0.875 [0.866, 0.881]",—,—,—,—,"TABLE_F10_itdk_release_final.csv; /24 cluster bootstrap, B=200"
+Primary continuous association,Power-window availability,Observed ITDK 2024-08 transit evidence,Binomial GEE; prefix24 clusters; exchangeable,β = 3.160 (log-odds),23.571,"[19.332, 28.740]",—,<0.001,TABLE_04_primary_regression.csv

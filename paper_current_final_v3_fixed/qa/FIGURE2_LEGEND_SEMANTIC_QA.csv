@@ -1,0 +1,3 @@
+check,language,actual_power,legend_power,actual_war,legend_war,status
+Figure 2 legend semantic match,en,circle / #2ca02c,circle / #2ca02c,cross / #d62728,cross / #d62728,PASS
+Figure 2 legend semantic match,zh,circle / #2ca02c,circle / #2ca02c,cross / #d62728,cross / #d62728,PASS

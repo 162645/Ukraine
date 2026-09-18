@@ -1,0 +1,3 @@
+language,source,result,power_actual_marker,power_actual_color,power_legend_marker,power_legend_color,war_actual_marker,war_actual_color,war_legend_marker,war_legend_color,labels_match
+zh,power_availability_infrastructure_scientific_closure_v3/figures/zh/figure31_event_timeline.svg,PASS,circle,#2ca02c,circle,#2ca02c,cross,#d62728,cross,#d62728,PASS
+en,power_availability_infrastructure_scientific_closure_v3/figures/en/figure31_event_timeline.svg,PASS,circle,#2ca02c,circle,#2ca02c,cross,#d62728,cross,#d62728,PASS

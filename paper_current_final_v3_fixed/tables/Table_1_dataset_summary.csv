@@ -1,0 +1,10 @@
+Metric,Value,Unit / interpretation,Source / status
+Study period,2024-06-01 to 2025-01-31 UTC,Registered study period,Frozen V2 master provenance
+Measurement interval,2,hours per cycle,Frozen V2 master provenance
+Target IP universe,NOT VERIFIED,No separate target-universe artifact in approved package,NOT RECOVERABLE; not inferred from analysis rows
+Frozen master IP records (analysis rows),"1,170,227",IP records represented in the frozen analysis master,power_availability_infrastructure_final_validation_v2/data/ip_power_availability_master_v2.parquet
+Oblasts,17,Unique oblast labels in frozen master,Frozen V2 master
+Power valid probe observations,"46,294,676",Count of valid probe observations,Frozen V2 master
+Normal valid probe observations,"185,178,704",Count of valid probe observations,Frozen V2 master
+Positive ITDK 2024-08 IP records,"3,958",Observed transit-hop evidence records,Frozen V2 master
+ITDK positive prevalence,0.338%,Positive ITDK records / frozen master records,Frozen V2 master

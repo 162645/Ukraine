@@ -1,0 +1,19 @@
+metric,source_file,frozen_value,display_value,absolute_difference,status
+Power AUC,power_availability_infrastructure_final_validation_v2/tables/TABLE_F07_final_auc.csv,0.8736917682031422,0.8736917682031422,0.0,PASS
+Normal AUC,power_availability_infrastructure_final_validation_v2/tables/TABLE_F07_final_auc.csv,0.8688668771236475,0.8688668771236475,0.0,PASS
+Power AP,power_availability_infrastructure_final_validation_v2/tables/TABLE_F07_final_auc.csv,0.019118241942755385,0.0191182419427553,8.673617379884035e-17,PASS
+Normal AP,power_availability_infrastructure_final_validation_v2/tables/TABLE_F07_final_auc.csv,0.019921550268546785,0.0199215502685467,8.673617379884035e-17,PASS
+ITDK prevalence,power_availability_infrastructure_final_validation_v2/tables/TABLE_F07_final_auc.csv,0.0033822497686346324,0.0033822497686346324,0.0,PASS
+2024-02 AUC,power_availability_infrastructure_final_validation_v2/tables/TABLE_F10_itdk_release_final.csv,0.8501309186504,0.8501309186504,0.0,PASS
+2024-08 AUC,power_availability_infrastructure_final_validation_v2/tables/TABLE_F10_itdk_release_final.csv,0.8736917682031422,0.8736917682031422,0.0,PASS
+2025-03 AUC,power_availability_infrastructure_final_validation_v2/tables/TABLE_F10_itdk_release_final.csv,0.8746025084653242,0.8746025084653242,0.0,PASS
+Primary GEE beta,power_availability_infrastructure_v1/tables/TABLE_04_primary_regression.csv,3.160034001062481,3.160034001062481,0.0,PASS
+Primary GEE OR,power_availability_infrastructure_v1/tables/TABLE_04_primary_regression.csv,23.571397367997832,23.571397367997832,0.0,PASS
+Primary GEE CI low,power_availability_infrastructure_v1/tables/TABLE_04_primary_regression.csv,19.332289897313395,19.332289897313395,0.0,PASS
+Primary GEE CI high,power_availability_infrastructure_v1/tables/TABLE_04_primary_regression.csv,28.7400394278832,28.7400394278832,0.0,PASS
+2024-02 AUC CI low,power_availability_infrastructure_final_validation_v2/tables/TABLE_F10_itdk_release_final.csv,0.8417242479822515,0.8417242479822515,0.0,PASS
+2024-02 AUC CI high,power_availability_infrastructure_final_validation_v2/tables/TABLE_F10_itdk_release_final.csv,0.859081560981724,0.859081560981724,0.0,PASS
+2024-08 AUC CI low,power_availability_infrastructure_final_validation_v2/tables/TABLE_F10_itdk_release_final.csv,0.8652321230051087,0.8652321230051087,0.0,PASS
+2024-08 AUC CI high,power_availability_infrastructure_final_validation_v2/tables/TABLE_F10_itdk_release_final.csv,0.8812684535666423,0.8812684535666423,0.0,PASS
+2025-03 AUC CI low,power_availability_infrastructure_final_validation_v2/tables/TABLE_F10_itdk_release_final.csv,0.8661077546534851,0.8661077546534851,0.0,PASS
+2025-03 AUC CI high,power_availability_infrastructure_final_validation_v2/tables/TABLE_F10_itdk_release_final.csv,0.8813615702201412,0.8813615702201412,0.0,PASS
