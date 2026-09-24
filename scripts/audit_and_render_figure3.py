@@ -133,7 +133,9 @@ def _plot(out: Path, results: list[dict], lang: str) -> None:
     ax_roc.set_title("(a) ROC" if not zh else "(a) ROC")
     ax_pr.set_title("(b) Precision–Recall" if not zh else "(b) 精确率–召回率")
     ax_roc.legend(frameon=False, fontsize=8, loc="lower right")
-    ax_pr.legend(frameon=False, fontsize=8, loc="upper right")
+    # Keep the legend away from the data-driven inset in the upper-right corner.
+    ax_pr.legend(frameon=True, framealpha=0.92, facecolor="white", edgecolor="0.8",
+                 fontsize=8, loc="upper left")
     for ax in [ax_roc, ax_pr]:
         ax.grid(alpha=0.22, lw=0.7)
         ax.tick_params(labelsize=9)
