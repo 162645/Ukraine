@@ -383,10 +383,8 @@ def run(args: argparse.Namespace) -> dict[str, object]:
     global_filter.to_csv(out / "IP_ADDRESS_FILTER_QA.csv", index=False)
     filter_qa.to_csv(out / "IP_ADDRESS_FILTER_BY_MONTH_QA.csv", index=False)
 
-    public = ledger[
-        ledger["address_class"].eq("public")
-        & ledger["intermediate_observation_n"].gt(0)
-    ].copy()
+    public_candidates = ledger[ledger["address_class"].eq("public")].copy()
+    public = public_candidates[public_candidates["intermediate_observation_n"].gt(0)].copy()
 
     target = pd.read_parquet(
         inputs.target_universe,
@@ -425,7 +423,7 @@ def run(args: argparse.Namespace) -> dict[str, object]:
     )
 
     main = master.merge(
-        public[[
+        public_candidates[[
             "ip", "first_seen", "last_seen", "intermediate_observation_n",
             "terminal_non_target_observation_n", "target_address_observation_n",
             "hop_position_min", "hop_position_max",
