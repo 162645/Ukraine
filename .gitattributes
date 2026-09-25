@@ -5,3 +5,4 @@
 *.yml text eol=lf
 *.md text eol=lf
 outputs/manuscript_lineage_v1/** text eol=lf
+outputs/own_traceroute_rebuild_v1/** text eol=lf
