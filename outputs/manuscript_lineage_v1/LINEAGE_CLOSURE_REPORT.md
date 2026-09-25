@@ -1,7 +1,7 @@
 # Manuscript scientific-lineage closure
 
 - Status: **PASS**
-- Lineage implementation commit used on the server: `f33827c93653d71313125a5626853307d9c702ad`
+- Lineage implementation commit used on the server: `8c2f0bb5805dc370c4c52249184ff85b04845e0b`
 - Frozen scientific-input repository commit: `5807ec2033b359fed535de4c532ab19f0ef37c65`
 - Eligible verified schedule event IDs: **67**
 - Schedule event IDs represented in the main frozen cohort: **39**
