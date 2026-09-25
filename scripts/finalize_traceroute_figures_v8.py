@@ -383,7 +383,7 @@ def write_package_manifest(out: Path) -> None:
 def write_implementation_provenance(out: Path, strict_root: Path) -> str:
     repo = Path(__file__).resolve().parent.parent
     commit = subprocess.check_output(
-        ["git", "-C", str(repo), "rev-parse", "HEAD"], text=True
+        ["git", "rev-parse", "HEAD"], cwd=repo, text=True
     ).strip()
     strict_summary_path = strict_root / "OWN_TRACEROUTE_REBUILD_SUMMARY.json"
     strict_summary = json.loads(strict_summary_path.read_text(encoding="utf-8"))
