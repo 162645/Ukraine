@@ -133,6 +133,8 @@ ARRAY JOIN hop_path AS hop, arrayEnumerate(hop_path) AS hop_position
 WHERE hop.1 != '*'
   AND IPv4StringToNumOrNull(hop.1) IS NOT NULL
 GROUP BY ip
+HAVING intermediate_observation_n > 0
+    OR terminal_non_target_observation_n > 0
 ORDER BY ip
 SETTINGS
   max_threads = 6,

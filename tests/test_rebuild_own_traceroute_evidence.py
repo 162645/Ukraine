@@ -37,6 +37,7 @@ def test_query_enforces_preterminal_observed_non_target_hops():
     assert "hop.1 != dst_ip" in q
     assert "hop.1 != '*'" in q
     assert "IPv4StringToNumOrNull" in q
+    assert "HAVING intermediate_observation_n > 0" in q
 
 
 def test_frozen_descriptive_bins_keep_equal_values_together():
