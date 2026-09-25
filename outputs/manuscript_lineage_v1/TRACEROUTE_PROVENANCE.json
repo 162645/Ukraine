@@ -1,0 +1,44 @@
+{
+  "source_repo_head": "042b48afcbdba553d80c5928bff991c09a8ccf1e",
+  "source_file_status": "DIRTY",
+  "source_sha256": "99a6cab5c27f5501d6fdd6d42719f347f31fdff96b348e1d97b34cee735dcea6",
+  "sampling_ranges": [
+    [
+      1,
+      63
+    ],
+    [
+      65,
+      127
+    ],
+    [
+      129,
+      191
+    ],
+    [
+      192,
+      254
+    ]
+  ],
+  "fixed_seed_available": false,
+  "actual_target_field": "dst_ip",
+  "clickhouse": {
+    "measurement_row_n": "774675284",
+    "distinct_target_ip_estimate_n": "10793017",
+    "distinct_prefix24_estimate_n": "42802",
+    "cycle_n": "4540",
+    "min_measure_time": "2024-06-22 08:28:49.000000",
+    "max_measure_time": "2025-01-09 14:54:10.000000",
+    "structured_path_nonempty_row_n": "774675284",
+    "reached_target_row_n": "107667218",
+    "responded_hop_sum": "5410453963",
+    "star_hop_sum": "1222432087",
+    "target_ledger_hash_xor": "11670474026940388072",
+    "target_ledger_hash_sum": "14180979198652271362",
+    "measurement_ledger_hash_xor": "2270726256262939740",
+    "measurement_ledger_hash_sum": "2104529659811978964",
+    "status": "PASS",
+    "database": "active_measurement",
+    "table": "UKRAINE__quarter-traceroute_AWS_frankfurt_2024-06-22"
+  }
+}

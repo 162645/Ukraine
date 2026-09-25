@@ -1,0 +1,22 @@
+{
+  "status": "PASS",
+  "implementation_git_commit": "f33827c93653d71313125a5626853307d9c702ad",
+  "scientific_input_git_commit": "5807ec2033b359fed535de4c532ab19f0ef37c65",
+  "scientific_results_recomputed": false,
+  "figures_generated": false,
+  "duplicate_cache_rows_removed_before_main_semantics": 0,
+  "schedule_eligible_event_ids": 67,
+  "schedule_event_ids_represented_in_main": 39,
+  "analysis_event_oblast_opportunities": 119,
+  "gates": {
+    "crosswalk_all_exact": true,
+    "cohort_identity_pass": true,
+    "master_identity_pass": true,
+    "input_manifest_complete": true,
+    "traceroute_sampler_frozen": true,
+    "traceroute_measurement_schema_generated": true,
+    "traceroute_measurement_digest_generated": true
+  },
+  "reanalysis_required": false,
+  "clickhouse_traceroute_status": "PASS"
+}

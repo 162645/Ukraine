@@ -1,0 +1,14 @@
+count_name,value,definition
+schedule_raw_row_n,1100,Raw rows in planned_outage_schedule_v4_0.csv
+schedule_eligible_row_n,801,Rows passing all four row-level inclusion flags
+schedule_unique_event_id_n,67,Unique verified schedule event IDs among eligible rows
+schedule_event_admin1_date_n,321,Eligible schedule event × admin1 × UTC-start-date records
+legacy_schedule_event_admin1_n,263,Legacy audit grouping; retained only to explain older counts
+legacy_date_matched_event_admin1_n,108,Legacy state/date match count; retained only to explain the historical audit and not used as the manuscript cohort
+analysis_cache_opportunity_n,119,Frozen cache event × oblast analysis opportunities
+analysis_unique_cache_event_id_n,119,Unique cache IDs; not independent verified schedule events
+analysis_represented_schedule_event_id_n,39,Verified schedule event IDs actually represented in the frozen main cohort
+analysis_event_oblast_n,119,Canonical manuscript Power analysis opportunities
+analysis_oblast_n,17,Oblasts represented in the canonical Power cohort
+unmapped_cache_opportunity_n,0,Cache opportunities without an overlapping eligible schedule event
+ambiguous_cache_opportunity_n,0,Cache opportunities overlapping multiple schedule event IDs

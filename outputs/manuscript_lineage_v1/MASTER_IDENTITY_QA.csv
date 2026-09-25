@@ -1,0 +1,8 @@
+field,frozen_row_n,rebuilt_row_n,mismatch_n,max_abs_difference,status
+ip_set,1170227,1170227,0,,PASS
+power_valid_probe_count,1170227,1170227,0,0.0,PASS
+normal_valid_probe_count,1170227,1170227,0,0.0,PASS
+power_responsive_count,1170227,1170227,0,0.0,PASS
+normal_responsive_count,1170227,1170227,0,0.0,PASS
+power_availability,1170227,1170227,0,0.0,PASS
+normal_availability,1170227,1170227,0,0.0,PASS

@@ -1,0 +1,24 @@
+name	type	default_type	default_expression	comment	codec_expression	ttl_expression
+cycle_id	UInt64					
+measure_time	DateTime64(6, \'UTC\')					
+data_center	LowCardinality(String)					
+prefix24	String					
+dst_ip	String					
+hop_count	UInt16					
+responded_hop_count	UInt16					
+star_hop_count	UInt16					
+reached_target	UInt8					
+hop_path	Array(Tuple(String, Nullable(Float32), Nullable(UInt16)))					
+hop_info_path	Array(String)					
+ip_path_text	String					
+ip_path_hash	UInt64					
+as_path_text	String					
+as_path_hash	UInt64					
+as_mid_nodes	String					
+as_term	String					
+asgeo_path_text	String					
+asgeo_path_hash	UInt64					
+asgeo_mid_nodes	String					
+asgeo_term	String					
+raw_trace	String					
+probe_ts_us	Nullable(UInt64)					
