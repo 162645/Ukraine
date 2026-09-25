@@ -1,0 +1,2 @@
+legacy_xlim_low,legacy_xlim_high,legacy_ylim_low,legacy_ylim_high,strict_min_x,strict_max_x,strict_min_ci_percent,strict_max_ci_percent,status
+-0.04993405969884046,1.049892517236543,-0.3034676067782315,6.945932733650201,5.805743458606495e-05,0.9999004001031164,0.0032236767346763653,5.16762577088253,PASS

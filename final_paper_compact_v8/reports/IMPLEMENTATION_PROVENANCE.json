@@ -1,0 +1,11 @@
+{
+  "figure_renderer_git_commit": "24b96df59f4cbd3a4e9236a7d074aa3b3b4d835c",
+  "strict_rebuild_implementation_git_commit": "461696564a24a4ba7fda8a7bf1a3ae7db31e2f20",
+  "strict_rebuild_scientific_input_git_commit": "5807ec2033b359fed535de4c532ab19f0ef37c65",
+  "strict_rebuild_summary_sha256": "7a7010ba7faca1f8a4301fb79cccfc6359f2a4d93f37c8208743f7af390af177",
+  "strict_s2_bins_sha256": "8e536993d526a822c3f9c0fbd512dafeb03600bcf3b38d4d55c4a151ae0b16d4",
+  "strict_overlap_sha256": "bc866adea7e6163e3071e30194f958616e548cec5a863134f96ecc8a84a5693a",
+  "clickhouse_source_table": "UKRAINE__quarter-traceroute_AWS_frankfurt_2024-06-22",
+  "formal_own_traceroute_positive_ip_n": 7430,
+  "historical_label_role": "audit/provenance only"
+}

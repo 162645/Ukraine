@@ -1,0 +1,9 @@
+metric,value,unit,definition
+CAIDA,3958.0,IP,Main-sample IPs with CAIDA ITDK 2024-08 transit evidence
+own traceroute,7430.0,IP,Strict public intermediate hops observed before the target in contemporaneous own-traceroute paths
+both,3450.0,IP,Observed by both topology sources
+own-only,3980.0,IP,Strict own-traceroute evidence without CAIDA transit evidence
+CAIDA-only,508.0,IP,CAIDA transit evidence without strict own-traceroute evidence
+union,7938.0,IP,Observed by either topology source
+P(own|CAIDA),87.17,percent,both / CAIDA; rounded to two decimals from the frozen strict rebuild
+P(CAIDA|own),46.43,percent,both / own traceroute; rounded to two decimals from the frozen strict rebuild

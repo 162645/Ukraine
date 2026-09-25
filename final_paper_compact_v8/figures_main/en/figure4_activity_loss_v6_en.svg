@@ -1,0 +1,584 @@
+<?xml version="1.0" encoding="utf-8" standalone="no"?>
+<!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN"
+  "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd">
+<svg xmlns:xlink="http://www.w3.org/1999/xlink" width="507.122627pt" height="224.756125pt" viewBox="0 0 507.122627 224.756125" xmlns="http://www.w3.org/2000/svg" version="1.1">
+ <metadata>
+  <rdf:RDF xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:cc="http://creativecommons.org/ns#" xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+   <cc:Work>
+    <dc:type rdf:resource="http://purl.org/dc/dcmitype/StillImage"/>
+    <dc:date>2026-09-25T14:45:27.043096</dc:date>
+    <dc:format>image/svg+xml</dc:format>
+    <dc:creator>
+     <cc:Agent>
+      <dc:title>Matplotlib v3.10.7, https://matplotlib.org/</dc:title>
+     </cc:Agent>
+    </dc:creator>
+   </cc:Work>
+  </rdf:RDF>
+ </metadata>
+ <defs>
+  <style type="text/css">*{stroke-linejoin: round; stroke-linecap: butt}</style>
+ </defs>
+ <g id="figure_1">
+  <g id="patch_1">
+   <path d="M 0 224.756125 
+L 507.122627 224.756125 
+L 507.122627 0 
+L 0 0 
+z
+" style="fill: #ffffff"/>
+  </g>
+  <g id="axes_1">
+   <g id="patch_2">
+    <path d="M 31.279688 196.1705 
+L 241.01183 196.1705 
+L 241.01183 5.6225 
+L 31.279688 5.6225 
+z
+" style="fill: #ffffff"/>
+   </g>
+   <g id="matplotlib.axis_1">
+    <g id="xtick_1">
+     <g id="line2d_1">
+      <path d="M 40.812967 196.1705 
+L 40.812967 5.6225 
+" clip-path="url(#p4e6fc535d2)" style="fill: none; stroke: #d9dee3; stroke-opacity: 0.25; stroke-width: 0.4; stroke-linecap: square"/>
+     </g>
+     <g id="line2d_2">
+      <defs>
+       <path id="mfa3fecaa71" d="M 0 0 
+L 0 3.5 
+" style="stroke: #20252b; stroke-width: 0.8"/>
+      </defs>
+      <g>
+       <use xlink:href="#mfa3fecaa71" x="40.812967" y="196.1705" style="fill: #20252b; stroke: #20252b; stroke-width: 0.8"/>
+      </g>
+     </g>
+     <g id="text_1">
+      <text style="font-size: 8px; font-family: 'WenQuanYi Zen Hei', 'Noto Sans CJK SC', 'DejaVu Sans', sans-serif; text-anchor: middle; fill: #20252b" x="40.812967" y="208.71675" transform="rotate(-0 40.812967 208.71675)">Q1</text>
+     </g>
+    </g>
+    <g id="xtick_2">
+     <g id="line2d_3">
+      <path d="M 88.479363 196.1705 
+L 88.479363 5.6225 
+" clip-path="url(#p4e6fc535d2)" style="fill: none; stroke: #d9dee3; stroke-opacity: 0.25; stroke-width: 0.4; stroke-linecap: square"/>
+     </g>
+     <g id="line2d_4">
+      <g>
+       <use xlink:href="#mfa3fecaa71" x="88.479363" y="196.1705" style="fill: #20252b; stroke: #20252b; stroke-width: 0.8"/>
+      </g>
+     </g>
+     <g id="text_2">
+      <text style="font-size: 8px; font-family: 'WenQuanYi Zen Hei', 'Noto Sans CJK SC', 'DejaVu Sans', sans-serif; text-anchor: middle; fill: #20252b" x="88.479363" y="208.71675" transform="rotate(-0 88.479363 208.71675)">Q2</text>
+     </g>
+    </g>
+    <g id="xtick_3">
+     <g id="line2d_5">
+      <path d="M 136.145759 196.1705 
+L 136.145759 5.6225 
+" clip-path="url(#p4e6fc535d2)" style="fill: none; stroke: #d9dee3; stroke-opacity: 0.25; stroke-width: 0.4; stroke-linecap: square"/>
+     </g>
+     <g id="line2d_6">
+      <g>
+       <use xlink:href="#mfa3fecaa71" x="136.145759" y="196.1705" style="fill: #20252b; stroke: #20252b; stroke-width: 0.8"/>
+      </g>
+     </g>
+     <g id="text_3">
+      <text style="font-size: 8px; font-family: 'WenQuanYi Zen Hei', 'Noto Sans CJK SC', 'DejaVu Sans', sans-serif; text-anchor: middle; fill: #20252b" x="136.145759" y="208.71675" transform="rotate(-0 136.145759 208.71675)">Q3</text>
+     </g>
+    </g>
+    <g id="xtick_4">
+     <g id="line2d_7">
+      <path d="M 183.812155 196.1705 
+L 183.812155 5.6225 
+" clip-path="url(#p4e6fc535d2)" style="fill: none; stroke: #d9dee3; stroke-opacity: 0.25; stroke-width: 0.4; stroke-linecap: square"/>
+     </g>
+     <g id="line2d_8">
+      <g>
+       <use xlink:href="#mfa3fecaa71" x="183.812155" y="196.1705" style="fill: #20252b; stroke: #20252b; stroke-width: 0.8"/>
+      </g>
+     </g>
+     <g id="text_4">
+      <text style="font-size: 8px; font-family: 'WenQuanYi Zen Hei', 'Noto Sans CJK SC', 'DejaVu Sans', sans-serif; text-anchor: middle; fill: #20252b" x="183.812155" y="208.71675" transform="rotate(-0 183.812155 208.71675)">Q4</text>
+     </g>
+    </g>
+    <g id="xtick_5">
+     <g id="line2d_9">
+      <path d="M 231.478551 196.1705 
+L 231.478551 5.6225 
+" clip-path="url(#p4e6fc535d2)" style="fill: none; stroke: #d9dee3; stroke-opacity: 0.25; stroke-width: 0.4; stroke-linecap: square"/>
+     </g>
+     <g id="line2d_10">
+      <g>
+       <use xlink:href="#mfa3fecaa71" x="231.478551" y="196.1705" style="fill: #20252b; stroke: #20252b; stroke-width: 0.8"/>
+      </g>
+     </g>
+     <g id="text_5">
+      <text style="font-size: 8px; font-family: 'WenQuanYi Zen Hei', 'Noto Sans CJK SC', 'DejaVu Sans', sans-serif; text-anchor: middle; fill: #20252b" x="231.478551" y="208.71675" transform="rotate(-0 231.478551 208.71675)">Q5</text>
+     </g>
+    </g>
+    <g id="text_6">
+     <text style="font-size: 9px; font-family: 'WenQuanYi Zen Hei', 'Noto Sans CJK SC', 'DejaVu Sans', sans-serif; text-anchor: middle; fill: #20252b" x="136.145759" y="220.216125" transform="rotate(-0 136.145759 220.216125)">Activity quintile</text>
+    </g>
+   </g>
+   <g id="matplotlib.axis_2">
+    <g id="ytick_1">
+     <g id="line2d_11">
+      <path d="M 31.279688 196.1705 
+L 241.01183 196.1705 
+" clip-path="url(#p4e6fc535d2)" style="fill: none; stroke: #d9dee3; stroke-opacity: 0.25; stroke-width: 0.4; stroke-linecap: square"/>
+     </g>
+     <g id="line2d_12">
+      <defs>
+       <path id="m7e4e4d13a9" d="M 0 0 
+L -3.5 0 
+" style="stroke: #20252b; stroke-width: 0.8"/>
+      </defs>
+      <g>
+       <use xlink:href="#m7e4e4d13a9" x="31.279688" y="196.1705" style="fill: #20252b; stroke: #20252b; stroke-width: 0.8"/>
+      </g>
+     </g>
+     <g id="text_7">
+      <text style="font-size: 8px; font-family: 'WenQuanYi Zen Hei', 'Noto Sans CJK SC', 'DejaVu Sans', sans-serif; text-anchor: end; fill: #20252b" x="24.279688" y="198.913" transform="rotate(-0 24.279688 198.913)">0</text>
+     </g>
+    </g>
+    <g id="ytick_2">
+     <g id="line2d_13">
+      <path d="M 31.279688 164.4125 
+L 241.01183 164.4125 
+" clip-path="url(#p4e6fc535d2)" style="fill: none; stroke: #d9dee3; stroke-opacity: 0.25; stroke-width: 0.4; stroke-linecap: square"/>
+     </g>
+     <g id="line2d_14">
+      <g>
+       <use xlink:href="#m7e4e4d13a9" x="31.279688" y="164.4125" style="fill: #20252b; stroke: #20252b; stroke-width: 0.8"/>
+      </g>
+     </g>
+     <g id="text_8">
+      <text style="font-size: 8px; font-family: 'WenQuanYi Zen Hei', 'Noto Sans CJK SC', 'DejaVu Sans', sans-serif; text-anchor: end; fill: #20252b" x="24.279688" y="167.155" transform="rotate(-0 24.279688 167.155)">10</text>
+     </g>
+    </g>
+    <g id="ytick_3">
+     <g id="line2d_15">
+      <path d="M 31.279688 132.6545 
+L 241.01183 132.6545 
+" clip-path="url(#p4e6fc535d2)" style="fill: none; stroke: #d9dee3; stroke-opacity: 0.25; stroke-width: 0.4; stroke-linecap: square"/>
+     </g>
+     <g id="line2d_16">
+      <g>
+       <use xlink:href="#m7e4e4d13a9" x="31.279688" y="132.6545" style="fill: #20252b; stroke: #20252b; stroke-width: 0.8"/>
+      </g>
+     </g>
+     <g id="text_9">
+      <text style="font-size: 8px; font-family: 'WenQuanYi Zen Hei', 'Noto Sans CJK SC', 'DejaVu Sans', sans-serif; text-anchor: end; fill: #20252b" x="24.279688" y="135.397" transform="rotate(-0 24.279688 135.397)">20</text>
+     </g>
+    </g>
+    <g id="ytick_4">
+     <g id="line2d_17">
+      <path d="M 31.279688 100.8965 
+L 241.01183 100.8965 
+" clip-path="url(#p4e6fc535d2)" style="fill: none; stroke: #d9dee3; stroke-opacity: 0.25; stroke-width: 0.4; stroke-linecap: square"/>
+     </g>
+     <g id="line2d_18">
+      <g>
+       <use xlink:href="#m7e4e4d13a9" x="31.279688" y="100.8965" style="fill: #20252b; stroke: #20252b; stroke-width: 0.8"/>
+      </g>
+     </g>
+     <g id="text_10">
+      <text style="font-size: 8px; font-family: 'WenQuanYi Zen Hei', 'Noto Sans CJK SC', 'DejaVu Sans', sans-serif; text-anchor: end; fill: #20252b" x="24.279688" y="103.639" transform="rotate(-0 24.279688 103.639)">30</text>
+     </g>
+    </g>
+    <g id="ytick_5">
+     <g id="line2d_19">
+      <path d="M 31.279688 69.1385 
+L 241.01183 69.1385 
+" clip-path="url(#p4e6fc535d2)" style="fill: none; stroke: #d9dee3; stroke-opacity: 0.25; stroke-width: 0.4; stroke-linecap: square"/>
+     </g>
+     <g id="line2d_20">
+      <g>
+       <use xlink:href="#m7e4e4d13a9" x="31.279688" y="69.1385" style="fill: #20252b; stroke: #20252b; stroke-width: 0.8"/>
+      </g>
+     </g>
+     <g id="text_11">
+      <text style="font-size: 8px; font-family: 'WenQuanYi Zen Hei', 'Noto Sans CJK SC', 'DejaVu Sans', sans-serif; text-anchor: end; fill: #20252b" x="24.279688" y="71.881" transform="rotate(-0 24.279688 71.881)">40</text>
+     </g>
+    </g>
+    <g id="ytick_6">
+     <g id="line2d_21">
+      <path d="M 31.279688 37.3805 
+L 241.01183 37.3805 
+" clip-path="url(#p4e6fc535d2)" style="fill: none; stroke: #d9dee3; stroke-opacity: 0.25; stroke-width: 0.4; stroke-linecap: square"/>
+     </g>
+     <g id="line2d_22">
+      <g>
+       <use xlink:href="#m7e4e4d13a9" x="31.279688" y="37.3805" style="fill: #20252b; stroke: #20252b; stroke-width: 0.8"/>
+      </g>
+     </g>
+     <g id="text_12">
+      <text style="font-size: 8px; font-family: 'WenQuanYi Zen Hei', 'Noto Sans CJK SC', 'DejaVu Sans', sans-serif; text-anchor: end; fill: #20252b" x="24.279688" y="40.123" transform="rotate(-0 24.279688 40.123)">50</text>
+     </g>
+    </g>
+    <g id="ytick_7">
+     <g id="line2d_23">
+      <path d="M 31.279688 5.6225 
+L 241.01183 5.6225 
+" clip-path="url(#p4e6fc535d2)" style="fill: none; stroke: #d9dee3; stroke-opacity: 0.25; stroke-width: 0.4; stroke-linecap: square"/>
+     </g>
+     <g id="line2d_24">
+      <g>
+       <use xlink:href="#m7e4e4d13a9" x="31.279688" y="5.6225" style="fill: #20252b; stroke: #20252b; stroke-width: 0.8"/>
+      </g>
+     </g>
+     <g id="text_13">
+      <text style="font-size: 8px; font-family: 'WenQuanYi Zen Hei', 'Noto Sans CJK SC', 'DejaVu Sans', sans-serif; text-anchor: end; fill: #20252b" x="24.279688" y="8.365" transform="rotate(-0 24.279688 8.365)">60</text>
+     </g>
+    </g>
+    <g id="text_14">
+     <text style="font-size: 9px; font-family: 'WenQuanYi Zen Hei', 'Noto Sans CJK SC', 'DejaVu Sans', sans-serif; text-anchor: middle; fill: #20252b" x="9.14625" y="100.8965" transform="rotate(-90 9.14625 100.8965)">Positive-loss proportion (%)</text>
+    </g>
+   </g>
+   <g id="LineCollection_1">
+    <path d="M 40.812967 145.81322 
+L 40.812967 144.720615 
+" clip-path="url(#p4e6fc535d2)" style="fill: none; stroke: #2f6f9f; stroke-width: 0.65"/>
+    <path d="M 88.479363 80.804617 
+L 88.479363 79.867323 
+" clip-path="url(#p4e6fc535d2)" style="fill: none; stroke: #2f6f9f; stroke-width: 0.65"/>
+    <path d="M 136.145759 51.167006 
+L 136.145759 50.357027 
+" clip-path="url(#p4e6fc535d2)" style="fill: none; stroke: #2f6f9f; stroke-width: 0.65"/>
+    <path d="M 183.812155 35.405422 
+L 183.812155 34.63829 
+" clip-path="url(#p4e6fc535d2)" style="fill: none; stroke: #2f6f9f; stroke-width: 0.65"/>
+    <path d="M 231.478551 47.588402 
+L 231.478551 46.86021 
+" clip-path="url(#p4e6fc535d2)" style="fill: none; stroke: #2f6f9f; stroke-width: 0.65"/>
+   </g>
+   <g id="line2d_25">
+    <defs>
+     <path id="m37a58fdf24" d="M 1.2 0 
+L -1.2 -0 
+" style="stroke: #2f6f9f; stroke-width: 0.45"/>
+    </defs>
+    <g clip-path="url(#p4e6fc535d2)">
+     <use xlink:href="#m37a58fdf24" x="40.812967" y="145.81322" style="fill: #2f6f9f; stroke: #2f6f9f; stroke-width: 0.45"/>
+     <use xlink:href="#m37a58fdf24" x="88.479363" y="80.804617" style="fill: #2f6f9f; stroke: #2f6f9f; stroke-width: 0.45"/>
+     <use xlink:href="#m37a58fdf24" x="136.145759" y="51.167006" style="fill: #2f6f9f; stroke: #2f6f9f; stroke-width: 0.45"/>
+     <use xlink:href="#m37a58fdf24" x="183.812155" y="35.405422" style="fill: #2f6f9f; stroke: #2f6f9f; stroke-width: 0.45"/>
+     <use xlink:href="#m37a58fdf24" x="231.478551" y="47.588402" style="fill: #2f6f9f; stroke: #2f6f9f; stroke-width: 0.45"/>
+    </g>
+   </g>
+   <g id="line2d_26">
+    <g clip-path="url(#p4e6fc535d2)">
+     <use xlink:href="#m37a58fdf24" x="40.812967" y="144.720615" style="fill: #2f6f9f; stroke: #2f6f9f; stroke-width: 0.45"/>
+     <use xlink:href="#m37a58fdf24" x="88.479363" y="79.867323" style="fill: #2f6f9f; stroke: #2f6f9f; stroke-width: 0.45"/>
+     <use xlink:href="#m37a58fdf24" x="136.145759" y="50.357027" style="fill: #2f6f9f; stroke: #2f6f9f; stroke-width: 0.45"/>
+     <use xlink:href="#m37a58fdf24" x="183.812155" y="34.63829" style="fill: #2f6f9f; stroke: #2f6f9f; stroke-width: 0.45"/>
+     <use xlink:href="#m37a58fdf24" x="231.478551" y="46.86021" style="fill: #2f6f9f; stroke: #2f6f9f; stroke-width: 0.45"/>
+    </g>
+   </g>
+   <g id="line2d_27">
+    <defs>
+     <path id="m5d129b1b5c" d="M 0 1.5 
+C 0.397805 1.5 0.77937 1.341951 1.06066 1.06066 
+C 1.341951 0.77937 1.5 0.397805 1.5 0 
+C 1.5 -0.397805 1.341951 -0.77937 1.06066 -1.06066 
+C 0.77937 -1.341951 0.397805 -1.5 0 -1.5 
+C -0.397805 -1.5 -0.77937 -1.341951 -1.06066 -1.06066 
+C -1.341951 -0.77937 -1.5 -0.397805 -1.5 0 
+C -1.5 0.397805 -1.341951 0.77937 -1.06066 1.06066 
+C -0.77937 1.341951 -0.397805 1.5 0 1.5 
+z
+" style="stroke: #2f6f9f; stroke-width: 0.45"/>
+    </defs>
+    <g clip-path="url(#p4e6fc535d2)">
+     <use xlink:href="#m5d129b1b5c" x="40.812967" y="145.26929" style="fill: #2f6f9f; stroke: #2f6f9f; stroke-width: 0.45"/>
+     <use xlink:href="#m5d129b1b5c" x="88.479363" y="80.336374" style="fill: #2f6f9f; stroke: #2f6f9f; stroke-width: 0.45"/>
+     <use xlink:href="#m5d129b1b5c" x="136.145759" y="50.762104" style="fill: #2f6f9f; stroke: #2f6f9f; stroke-width: 0.45"/>
+     <use xlink:href="#m5d129b1b5c" x="183.812155" y="35.021842" style="fill: #2f6f9f; stroke: #2f6f9f; stroke-width: 0.45"/>
+     <use xlink:href="#m5d129b1b5c" x="231.478551" y="47.224358" style="fill: #2f6f9f; stroke: #2f6f9f; stroke-width: 0.45"/>
+    </g>
+   </g>
+   <g id="patch_3">
+    <path d="M 31.279688 196.1705 
+L 31.279688 5.6225 
+" style="fill: none; stroke: #20252b; stroke-width: 0.75; stroke-linejoin: miter; stroke-linecap: square"/>
+   </g>
+   <g id="patch_4">
+    <path d="M 241.01183 196.1705 
+L 241.01183 5.6225 
+" style="fill: none; stroke: #20252b; stroke-width: 0.75; stroke-linejoin: miter; stroke-linecap: square"/>
+   </g>
+   <g id="patch_5">
+    <path d="M 31.279688 196.1705 
+L 241.01183 196.1705 
+" style="fill: none; stroke: #20252b; stroke-width: 0.75; stroke-linejoin: miter; stroke-linecap: square"/>
+   </g>
+   <g id="patch_6">
+    <path d="M 31.279688 5.6225 
+L 241.01183 5.6225 
+" style="fill: none; stroke: #20252b; stroke-width: 0.75; stroke-linejoin: miter; stroke-linecap: square"/>
+   </g>
+   <g id="text_15">
+    <text style="font-size: 10px; font-family: 'WenQuanYi Zen Hei', 'Noto Sans CJK SC', 'DejaVu Sans', sans-serif; text-anchor: start; fill: #20252b" x="35.47433" y="16.28971" transform="rotate(-0 35.47433 16.28971)">(a) Activity quintiles</text>
+   </g>
+  </g>
+  <g id="axes_2">
+   <g id="patch_7">
+    <path d="M 291.347545 196.1705 
+L 501.079687 196.1705 
+L 501.079687 5.6225 
+L 291.347545 5.6225 
+z
+" style="fill: #ffffff"/>
+   </g>
+   <g id="matplotlib.axis_3">
+    <g id="xtick_6">
+     <g id="line2d_28">
+      <path d="M 295.380855 196.1705 
+L 295.380855 5.6225 
+" clip-path="url(#p1c814aa47d)" style="fill: none; stroke: #d9dee3; stroke-opacity: 0.25; stroke-width: 0.4; stroke-linecap: square"/>
+     </g>
+     <g id="line2d_29">
+      <g>
+       <use xlink:href="#mfa3fecaa71" x="295.380855" y="196.1705" style="fill: #20252b; stroke: #20252b; stroke-width: 0.8"/>
+      </g>
+     </g>
+     <g id="text_16">
+      <text style="font-size: 8px; font-family: 'WenQuanYi Zen Hei', 'Noto Sans CJK SC', 'DejaVu Sans', sans-serif; text-anchor: middle; fill: #20252b" x="295.380855" y="208.6555" transform="rotate(-0 295.380855 208.6555)">0</text>
+     </g>
+    </g>
+    <g id="xtick_7">
+     <g id="line2d_30">
+      <path d="M 335.713959 196.1705 
+L 335.713959 5.6225 
+" clip-path="url(#p1c814aa47d)" style="fill: none; stroke: #d9dee3; stroke-opacity: 0.25; stroke-width: 0.4; stroke-linecap: square"/>
+     </g>
+     <g id="line2d_31">
+      <g>
+       <use xlink:href="#mfa3fecaa71" x="335.713959" y="196.1705" style="fill: #20252b; stroke: #20252b; stroke-width: 0.8"/>
+      </g>
+     </g>
+     <g id="text_17">
+      <text style="font-size: 8px; font-family: 'WenQuanYi Zen Hei', 'Noto Sans CJK SC', 'DejaVu Sans', sans-serif; text-anchor: middle; fill: #20252b" x="335.713959" y="208.6555" transform="rotate(-0 335.713959 208.6555)">20</text>
+     </g>
+    </g>
+    <g id="xtick_8">
+     <g id="line2d_32">
+      <path d="M 376.047064 196.1705 
+L 376.047064 5.6225 
+" clip-path="url(#p1c814aa47d)" style="fill: none; stroke: #d9dee3; stroke-opacity: 0.25; stroke-width: 0.4; stroke-linecap: square"/>
+     </g>
+     <g id="line2d_33">
+      <g>
+       <use xlink:href="#mfa3fecaa71" x="376.047064" y="196.1705" style="fill: #20252b; stroke: #20252b; stroke-width: 0.8"/>
+      </g>
+     </g>
+     <g id="text_18">
+      <text style="font-size: 8px; font-family: 'WenQuanYi Zen Hei', 'Noto Sans CJK SC', 'DejaVu Sans', sans-serif; text-anchor: middle; fill: #20252b" x="376.047064" y="208.6555" transform="rotate(-0 376.047064 208.6555)">40</text>
+     </g>
+    </g>
+    <g id="xtick_9">
+     <g id="line2d_34">
+      <path d="M 416.380168 196.1705 
+L 416.380168 5.6225 
+" clip-path="url(#p1c814aa47d)" style="fill: none; stroke: #d9dee3; stroke-opacity: 0.25; stroke-width: 0.4; stroke-linecap: square"/>
+     </g>
+     <g id="line2d_35">
+      <g>
+       <use xlink:href="#mfa3fecaa71" x="416.380168" y="196.1705" style="fill: #20252b; stroke: #20252b; stroke-width: 0.8"/>
+      </g>
+     </g>
+     <g id="text_19">
+      <text style="font-size: 8px; font-family: 'WenQuanYi Zen Hei', 'Noto Sans CJK SC', 'DejaVu Sans', sans-serif; text-anchor: middle; fill: #20252b" x="416.380168" y="208.6555" transform="rotate(-0 416.380168 208.6555)">60</text>
+     </g>
+    </g>
+    <g id="xtick_10">
+     <g id="line2d_36">
+      <path d="M 456.713273 196.1705 
+L 456.713273 5.6225 
+" clip-path="url(#p1c814aa47d)" style="fill: none; stroke: #d9dee3; stroke-opacity: 0.25; stroke-width: 0.4; stroke-linecap: square"/>
+     </g>
+     <g id="line2d_37">
+      <g>
+       <use xlink:href="#mfa3fecaa71" x="456.713273" y="196.1705" style="fill: #20252b; stroke: #20252b; stroke-width: 0.8"/>
+      </g>
+     </g>
+     <g id="text_20">
+      <text style="font-size: 8px; font-family: 'WenQuanYi Zen Hei', 'Noto Sans CJK SC', 'DejaVu Sans', sans-serif; text-anchor: middle; fill: #20252b" x="456.713273" y="208.6555" transform="rotate(-0 456.713273 208.6555)">80</text>
+     </g>
+    </g>
+    <g id="xtick_11">
+     <g id="line2d_38">
+      <path d="M 497.046377 196.1705 
+L 497.046377 5.6225 
+" clip-path="url(#p1c814aa47d)" style="fill: none; stroke: #d9dee3; stroke-opacity: 0.25; stroke-width: 0.4; stroke-linecap: square"/>
+     </g>
+     <g id="line2d_39">
+      <g>
+       <use xlink:href="#mfa3fecaa71" x="497.046377" y="196.1705" style="fill: #20252b; stroke: #20252b; stroke-width: 0.8"/>
+      </g>
+     </g>
+     <g id="text_21">
+      <text style="font-size: 8px; font-family: 'WenQuanYi Zen Hei', 'Noto Sans CJK SC', 'DejaVu Sans', sans-serif; text-anchor: middle; fill: #20252b" x="497.046377" y="208.6555" transform="rotate(-0 497.046377 208.6555)">100</text>
+     </g>
+    </g>
+    <g id="text_22">
+     <text style="font-size: 9px; font-family: 'WenQuanYi Zen Hei', 'Noto Sans CJK SC', 'DejaVu Sans', sans-serif; text-anchor: middle; fill: #20252b" x="396.213616" y="220.2505" transform="rotate(-0 396.213616 220.2505)">Cumulative IP share ranked by baseline Activity (%)</text>
+    </g>
+   </g>
+   <g id="matplotlib.axis_4">
+    <g id="ytick_8">
+     <g id="line2d_40">
+      <path d="M 291.347545 192.506115 
+L 501.079687 192.506115 
+" clip-path="url(#p1c814aa47d)" style="fill: none; stroke: #d9dee3; stroke-opacity: 0.25; stroke-width: 0.4; stroke-linecap: square"/>
+     </g>
+     <g id="line2d_41">
+      <g>
+       <use xlink:href="#m7e4e4d13a9" x="291.347545" y="192.506115" style="fill: #20252b; stroke: #20252b; stroke-width: 0.8"/>
+      </g>
+     </g>
+     <g id="text_23">
+      <text style="font-size: 8px; font-family: 'WenQuanYi Zen Hei', 'Noto Sans CJK SC', 'DejaVu Sans', sans-serif; text-anchor: end; fill: #20252b" x="284.347545" y="195.248615" transform="rotate(-0 284.347545 195.248615)">0</text>
+     </g>
+    </g>
+    <g id="ytick_9">
+     <g id="line2d_42">
+      <path d="M 291.347545 155.862269 
+L 501.079687 155.862269 
+" clip-path="url(#p1c814aa47d)" style="fill: none; stroke: #d9dee3; stroke-opacity: 0.25; stroke-width: 0.4; stroke-linecap: square"/>
+     </g>
+     <g id="line2d_43">
+      <g>
+       <use xlink:href="#m7e4e4d13a9" x="291.347545" y="155.862269" style="fill: #20252b; stroke: #20252b; stroke-width: 0.8"/>
+      </g>
+     </g>
+     <g id="text_24">
+      <text style="font-size: 8px; font-family: 'WenQuanYi Zen Hei', 'Noto Sans CJK SC', 'DejaVu Sans', sans-serif; text-anchor: end; fill: #20252b" x="284.347545" y="158.604769" transform="rotate(-0 284.347545 158.604769)">20</text>
+     </g>
+    </g>
+    <g id="ytick_10">
+     <g id="line2d_44">
+      <path d="M 291.347545 119.218423 
+L 501.079687 119.218423 
+" clip-path="url(#p1c814aa47d)" style="fill: none; stroke: #d9dee3; stroke-opacity: 0.25; stroke-width: 0.4; stroke-linecap: square"/>
+     </g>
+     <g id="line2d_45">
+      <g>
+       <use xlink:href="#m7e4e4d13a9" x="291.347545" y="119.218423" style="fill: #20252b; stroke: #20252b; stroke-width: 0.8"/>
+      </g>
+     </g>
+     <g id="text_25">
+      <text style="font-size: 8px; font-family: 'WenQuanYi Zen Hei', 'Noto Sans CJK SC', 'DejaVu Sans', sans-serif; text-anchor: end; fill: #20252b" x="284.347545" y="121.960923" transform="rotate(-0 284.347545 121.960923)">40</text>
+     </g>
+    </g>
+    <g id="ytick_11">
+     <g id="line2d_46">
+      <path d="M 291.347545 82.574577 
+L 501.079687 82.574577 
+" clip-path="url(#p1c814aa47d)" style="fill: none; stroke: #d9dee3; stroke-opacity: 0.25; stroke-width: 0.4; stroke-linecap: square"/>
+     </g>
+     <g id="line2d_47">
+      <g>
+       <use xlink:href="#m7e4e4d13a9" x="291.347545" y="82.574577" style="fill: #20252b; stroke: #20252b; stroke-width: 0.8"/>
+      </g>
+     </g>
+     <g id="text_26">
+      <text style="font-size: 8px; font-family: 'WenQuanYi Zen Hei', 'Noto Sans CJK SC', 'DejaVu Sans', sans-serif; text-anchor: end; fill: #20252b" x="284.347545" y="85.317077" transform="rotate(-0 284.347545 85.317077)">60</text>
+     </g>
+    </g>
+    <g id="ytick_12">
+     <g id="line2d_48">
+      <path d="M 291.347545 45.930731 
+L 501.079687 45.930731 
+" clip-path="url(#p1c814aa47d)" style="fill: none; stroke: #d9dee3; stroke-opacity: 0.25; stroke-width: 0.4; stroke-linecap: square"/>
+     </g>
+     <g id="line2d_49">
+      <g>
+       <use xlink:href="#m7e4e4d13a9" x="291.347545" y="45.930731" style="fill: #20252b; stroke: #20252b; stroke-width: 0.8"/>
+      </g>
+     </g>
+     <g id="text_27">
+      <text style="font-size: 8px; font-family: 'WenQuanYi Zen Hei', 'Noto Sans CJK SC', 'DejaVu Sans', sans-serif; text-anchor: end; fill: #20252b" x="284.347545" y="48.673231" transform="rotate(-0 284.347545 48.673231)">80</text>
+     </g>
+    </g>
+    <g id="ytick_13">
+     <g id="line2d_50">
+      <path d="M 291.347545 9.286885 
+L 501.079687 9.286885 
+" clip-path="url(#p1c814aa47d)" style="fill: none; stroke: #d9dee3; stroke-opacity: 0.25; stroke-width: 0.4; stroke-linecap: square"/>
+     </g>
+     <g id="line2d_51">
+      <g>
+       <use xlink:href="#m7e4e4d13a9" x="291.347545" y="9.286885" style="fill: #20252b; stroke: #20252b; stroke-width: 0.8"/>
+      </g>
+     </g>
+     <g id="text_28">
+      <text style="font-size: 8px; font-family: 'WenQuanYi Zen Hei', 'Noto Sans CJK SC', 'DejaVu Sans', sans-serif; text-anchor: end; fill: #20252b" x="284.347545" y="12.029385" transform="rotate(-0 284.347545 12.029385)">100</text>
+     </g>
+    </g>
+    <g id="text_29">
+     <text style="font-size: 9px; font-family: 'WenQuanYi Zen Hei', 'Noto Sans CJK SC', 'DejaVu Sans', sans-serif; text-anchor: middle; fill: #20252b" x="264.416607" y="100.8965" transform="rotate(-90 264.416607 100.8965)">Cumulative positive-loss share (%)</text>
+    </g>
+   </g>
+   <g id="line2d_52">
+    <path d="M 295.380855 192.506115 
+L 497.046377 9.286885 
+" clip-path="url(#p1c814aa47d)" style="fill: none; stroke-dasharray: 3.33,1.44; stroke-dashoffset: 0; stroke: #666666; stroke-width: 0.9"/>
+   </g>
+   <g id="patch_8">
+    <path d="M 291.347545 196.1705 
+L 291.347545 5.6225 
+" style="fill: none; stroke: #20252b; stroke-width: 0.75; stroke-linejoin: miter; stroke-linecap: square"/>
+   </g>
+   <g id="patch_9">
+    <path d="M 501.079687 196.1705 
+L 501.079687 5.6225 
+" style="fill: none; stroke: #20252b; stroke-width: 0.75; stroke-linejoin: miter; stroke-linecap: square"/>
+   </g>
+   <g id="patch_10">
+    <path d="M 291.347545 196.1705 
+L 501.079687 196.1705 
+" style="fill: none; stroke: #20252b; stroke-width: 0.75; stroke-linejoin: miter; stroke-linecap: square"/>
+   </g>
+   <g id="patch_11">
+    <path d="M 291.347545 5.6225 
+L 501.079687 5.6225 
+" style="fill: none; stroke: #20252b; stroke-width: 0.75; stroke-linejoin: miter; stroke-linecap: square"/>
+   </g>
+   <g id="line2d_53">
+    <defs>
+     <path id="m6eddabd1a9" d="M 0 1.5 
+C 0.397805 1.5 0.77937 1.341951 1.06066 1.06066 
+C 1.341951 0.77937 1.5 0.397805 1.5 0 
+C 1.5 -0.397805 1.341951 -0.77937 1.06066 -1.06066 
+C 0.77937 -1.341951 0.397805 -1.5 0 -1.5 
+C -0.397805 -1.5 -0.77937 -1.341951 -1.06066 -1.06066 
+C -1.341951 -0.77937 -1.5 -0.397805 -1.5 0 
+C -1.5 0.397805 -1.341951 0.77937 -1.06066 1.06066 
+C -0.77937 1.341951 -0.397805 1.5 0 1.5 
+z
+" style="stroke: #c63d2f; stroke-width: 0.45"/>
+    </defs>
+    <g clip-path="url(#p1c814aa47d)">
+     <use xlink:href="#m6eddabd1a9" x="315.547407" y="175.087954" style="fill: #c63d2f; stroke: #c63d2f; stroke-width: 0.45"/>
+     <use xlink:href="#m6eddabd1a9" x="335.713959" y="152.476176" style="fill: #c63d2f; stroke: #c63d2f; stroke-width: 0.45"/>
+     <use xlink:href="#m6eddabd1a9" x="396.213616" y="83.200385" style="fill: #c63d2f; stroke: #c63d2f; stroke-width: 0.45"/>
+     <use xlink:href="#m6eddabd1a9" x="497.046377" y="9.286885" style="fill: #c63d2f; stroke: #c63d2f; stroke-width: 0.45"/>
+    </g>
+   </g>
+   <g id="text_30">
+    <text style="font-size: 10px; font-family: 'WenQuanYi Zen Hei', 'Noto Sans CJK SC', 'DejaVu Sans', sans-serif; text-anchor: start; fill: #20252b" x="295.542188" y="16.39596" transform="rotate(-0 295.542188 16.39596)">(b) Cumulative loss share</text>
+   </g>
+  </g>
+ </g>
+ <defs>
+  <clipPath id="p4e6fc535d2">
+   <rect x="31.279688" y="5.6225" width="209.732143" height="190.548"/>
+  </clipPath>
+  <clipPath id="p1c814aa47d">
+   <rect x="291.347545" y="5.6225" width="209.732143" height="190.548"/>
+  </clipPath>
+ </defs>
+</svg>

@@ -1,0 +1,31 @@
+check,status,detail
+strict positive IP count,PASS,observed=7430; expected=7430
+historical label excluded from formal S2 data,PASS,formal S2 data contains only rebuilt_clickhouse rows
+frozen bin count,PASS,rows=85
+frozen main-sample denominator,PASS,sum_n=1170227
+Wilson 95% identity,PASS,max_abs_diff=9.93e-17
+no model fitted,PASS,renderer consumes frozen bin summaries only
+no threshold added,PASS,no threshold appears in code or outputs
+coverage row count,PASS,rows=8
+legacy S2 retained only as provenance hashes,PASS,files_hashed=6
+server-rendered images visually reviewed,PASS,qa/S2_V8_RENDER_REVIEW.md records PASS after PNG inspection
+renderer commit recorded,PASS,24b96df59f4cbd3a4e9236a7d074aa3b3b4d835c
+unchanged FIGURE1_PLACEHOLDER.md,PASS,byte-level SHA-256 identity
+unchanged figure2,PASS,files_checked=6; byte-level SHA-256 identity
+unchanged figure3,PASS,files_checked=6; byte-level SHA-256 identity
+unchanged figure4,PASS,files_checked=6; byte-level SHA-256 identity
+Figure 5(b) data unchanged/en,PASS,byte-level SHA-256 identity
+Figure 5(b) data unchanged/zh,PASS,byte-level SHA-256 identity
+S2 en png exists,PASS,required bilingual triplet
+Figure 5 v8 en png exists,PASS,authorized Figure 5(c) correction
+S2 en pdf exists,PASS,required bilingual triplet
+Figure 5 v8 en pdf exists,PASS,authorized Figure 5(c) correction
+S2 en svg exists,PASS,required bilingual triplet
+Figure 5 v8 en svg exists,PASS,authorized Figure 5(c) correction
+S2 zh png exists,PASS,required bilingual triplet
+Figure 5 v8 zh png exists,PASS,authorized Figure 5(c) correction
+S2 zh pdf exists,PASS,required bilingual triplet
+Figure 5 v8 zh pdf exists,PASS,authorized Figure 5(c) correction
+S2 zh svg exists,PASS,required bilingual triplet
+Figure 5 v8 zh svg exists,PASS,authorized Figure 5(c) correction
+legacy count absent from formal captions/tables,PASS,legacy count retained only under audit/provenance

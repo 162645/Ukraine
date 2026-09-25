@@ -1,0 +1,2 @@
+metric,estimate,CI_low,CI_high,B,cluster
+AUC_difference_power_minus_normal,0.004824891079494686,,,2000,prefix24
