@@ -1,0 +1,7 @@
+address_class,unique_observed_ip_n,total_observed_response_n,intermediate_observation_n,terminal_non_target_observation_n,target_address_observation_n
+documentation_203,3,1193527,0,1193527,0
+ietf_protocol_assignments,1,21044,21024,20,0
+private_10,14,21,8,13,0
+public,65011,2292918273,1784535169,506621372,1761732
+reserved,2393,2523850872,2496020222,27830650,0
+shared_cgnat,4977,483966769,352703414,131263355,0

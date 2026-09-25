@@ -1,0 +1,2 @@
+check,frozen_positive_ip_n,rebuilt_positive_ip_n,intersection_ip_n,frozen_only_ip_n,rebuilt_only_ip_n,status
+rebuilt_clickhouse_vs_frozen_own_traceroute_intermediate,10697,7430,7430,3267,0,FAIL_NO_AUTOMATIC_MUTATION

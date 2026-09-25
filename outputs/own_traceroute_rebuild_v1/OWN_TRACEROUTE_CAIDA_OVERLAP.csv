@@ -1,0 +1,2 @@
+main_sample_ip_n,caida_positive_ip_n,rebuilt_own_positive_ip_n,both_positive_ip_n,caida_only_ip_n,rebuilt_own_only_ip_n,neither_positive_ip_n,union_positive_ip_n,p_own_given_caida,p_caida_given_own
+1170227,3958,7430,3450,508,3980,1162289,7938,0.8716523496715513,0.46433378196500674
