@@ -4,3 +4,4 @@
 *.yaml text eol=lf
 *.yml text eol=lf
 *.md text eol=lf
+outputs/manuscript_lineage_v1/** text eol=lf
