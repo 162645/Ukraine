@@ -329,6 +329,45 @@ def run(args: argparse.Namespace) -> dict[str, object]:
         "\n".join(f"{r['month']}:{r['sha256']}" for r in export_rows).encode()
     ).hexdigest()
 
+    legacy_by_month = {
+        path.stem.rsplit("_", 1)[-1]: path
+        for path in legacy_files
+    }
+    monthly_identity_rows = []
+    monthly_difference_rows = []
+    for month, rebuilt_path in zip((r["month"] for r in export_rows), monthly_files):
+        rebuilt_month_set = set(pd.read_csv(rebuilt_path, usecols=["ip"])["ip"].dropna().astype(str))
+        legacy_path = legacy_by_month.get(month)
+        legacy_month_set = (
+            set(pd.read_csv(legacy_path, usecols=["ip"])["ip"].dropna().astype(str))
+            if legacy_path is not None else set()
+        )
+        legacy_only_month = legacy_month_set - rebuilt_month_set
+        rebuilt_only_month = rebuilt_month_set - legacy_month_set
+        monthly_identity_rows.append({
+            "month": month,
+            "legacy_ip_n": len(legacy_month_set),
+            "rebuilt_clickhouse_ip_n": len(rebuilt_month_set),
+            "intersection_ip_n": len(legacy_month_set & rebuilt_month_set),
+            "legacy_only_ip_n": len(legacy_only_month),
+            "rebuilt_only_ip_n": len(rebuilt_only_month),
+            "status": "PASS" if not legacy_only_month and not rebuilt_only_month else "DIFFERENT",
+        })
+        monthly_difference_rows.extend(
+            {"month": month, "ip": ip, "set_side": "legacy_only"}
+            for ip in sorted(legacy_only_month)
+        )
+        monthly_difference_rows.extend(
+            {"month": month, "ip": ip, "set_side": "rebuilt_clickhouse_only"}
+            for ip in sorted(rebuilt_only_month)
+        )
+    monthly_identity = pd.DataFrame(monthly_identity_rows)
+    monthly_identity.to_csv(out / "LEGACY_MONTHLY_SET_IDENTITY_QA.csv", index=False)
+    pd.DataFrame(
+        monthly_difference_rows,
+        columns=["month", "ip", "set_side"],
+    ).to_csv(out / "LEGACY_MONTHLY_SET_DIFFERENCES.csv", index=False)
+
     ledger, filter_qa = aggregate_monthly(monthly_files)
     # Recompute the class after monthly aggregation to make the global QA easy
     # to audit independently of monthly row multiplicity.
@@ -506,6 +545,11 @@ def run(args: argparse.Namespace) -> dict[str, object]:
         "frozen_only_ip_n": len(frozen_only),
         "rebuilt_only_ip_n": len(rebuilt_only),
         "label_identity_status": identity.iloc[0]["status"],
+        "legacy_monthly_sets_all_exact": bool(monthly_identity["status"].eq("PASS").all()),
+        "legacy_monthly_total_difference_rows": int(
+            monthly_identity["legacy_only_ip_n"].sum()
+            + monthly_identity["rebuilt_only_ip_n"].sum()
+        ),
         "s2_same_endpoint_direction": bool(direction.iloc[0]["same_direction"]),
         "frozen_s2_endpoint_prevalence_difference": frozen_delta,
         "rebuilt_s2_endpoint_prevalence_difference": rebuilt_delta,
@@ -555,6 +599,8 @@ An observed intermediate-hop IP is a syntactically valid public IPv4 address ret
 - Rebuilt positives: {len(rebuilt_main):,}
 - Frozen-only: {len(frozen_only):,}
 - Rebuilt-only: {len(rebuilt_only):,}
+
+The old monthly CSV sets are compared independently in `LEGACY_MONTHLY_SET_IDENTITY_QA.csv`; every differing address is retained in `LEGACY_MONTHLY_SET_DIFFERENCES.csv`.
 
 ## Interpretation boundary
 
