@@ -1,0 +1,695 @@
+package areaPing
+
+import (
+	"GlobalPing/config"
+	"GlobalPing/dataStore/storeDB"
+	"GlobalPing/dataStore/storeFile"
+	transmitter "GlobalPing/kernal/transmitter/packetSendRecv"
+	"GlobalPing/mylog"
+	pb "GlobalPing/proto"
+	"GlobalPing/traceroute"
+	"GlobalPing/utils"
+	"context"
+	"encoding/json"
+	"fmt"
+	"go.uber.org/zap"
+	"golang.org/x/net/icmp"
+	"golang.org/x/net/ipv4"
+	"math/rand"
+	"net"
+	"os"
+	"runtime"
+	"sort"
+	"strconv"
+	"strings"
+	"sync"
+	"syscall"
+	"time"
+)
+
+var (
+	logger     = mylog.GetLogger()
+	msPerCNet  = 254
+	ipNumPerMs = 1
+
+	// 当前存活的所有网段的数据。关联数据处理ProcessIcmpPacket和定时存储timerSave两个协程
+	netDataMap = new(sync.Map) // netDataMap[网段号加轮数] *NetPingData
+	timeoutMs  = 2000
+	// 计算10MS一个C段,1ms 25packet，timeoutMs这个时间timeoutMs个C段，顶破天*3
+	timer       = make(chan string, timeoutMs*4)
+	packetSize  = 0
+	sendConn    *net.IPConn
+	recvConn    *icmp.PacketConn
+	recvPktConn *ipv4.PacketConn
+	traceChan   = make(chan traceData, timeoutMs*4)
+
+	traceAllIpChan = make(chan NetIdRoundCnt, timeoutMs*4)
+
+	// for data transfer
+	host              = "null_host"
+	measurementPrefix = "GlobalPing"
+)
+
+type traceData struct {
+	netId  string
+	ips    []string
+	sendTs int64
+	round  int
+}
+
+//// 网段号加轮数
+//func NetIdPlusRound(netId string, round int) string{
+//	tmp := strconv.Itoa(round)
+//	return netId+"_"+tmp
+//}
+//
+//// 网段号加轮数的分解
+//func GetNetIdRound(netIdRound string) (string, int){
+//	ch := "_"
+//	index := strings.Index(netIdRound, ch)
+//	netId := netIdRound[:index]
+//	tmp := netIdRound[index+len(ch):]
+//	round, _ := strconv.Atoi(tmp)
+//	return netId, round
+//}
+
+func netsToInt(nets []string) [][]int {
+	var netsInt = make([][]int, 0)
+	for _, str := range nets {
+		splits := strings.Split(str, ".")
+		tmp := make([]int, 3)
+		tmp[0], _ = strconv.Atoi(splits[0])
+		tmp[1], _ = strconv.Atoi(splits[1])
+		tmp[2], _ = strconv.Atoi(splits[2])
+		netsInt = append(netsInt, tmp)
+	}
+	return netsInt
+}
+
+func netCompare(net1, net2 []int) int {
+	for i, num1 := range net1 {
+		num2 := net2[i]
+		if num1 > num2 {
+			return 1
+		} else if num1 < num2 {
+			return -1
+		}
+	}
+	return 0
+}
+
+type NetIdRoundCnt struct {
+	netId    string
+	roundCnt int
+}
+
+// 如果只有trace，超时为2秒， 20Mb/s带宽，2秒能发40Mb数据，每个包64字节，40Mb = 5MB，等于5M/64=81920个包，
+//TTL上限为32(一个IP32个包)，那么可以同时测量81920/32 = 2560个IP，一个协程只能在2秒内trace一个IP。
+func traceCNet(goId int) {
+	for {
+		v := <-traceAllIpChan
+		roundCnt := v.roundCnt
+		netId := v.netId
+		var hostId = 1
+		//netDataMap.Store(netId, netPingData)
+		// 开始对每个IP进行Ping
+		startTimestamp := time.Now().Unix()
+		var resultMap map[string][]string
+		resultMap = map[string][]string{}
+		start := time.Now()
+		// trace这254个IP
+		for hostId = 1; hostId < 255; hostId++ {
+			oneIPStart := time.Now()
+			var ip = netId + "." + strconv.Itoa(hostId)
+			output, sendTimestamps, err := traceroute.Trace(net.ParseIP(ip))
+			sendTimestampsCopy := make([]int64, len(sendTimestamps))
+			copy(sendTimestampsCopy, sendTimestamps)
+			if err != nil {
+				logger.Error("trace", zap.Error(err))
+			}
+			length := len(output)
+			if length != 0 {
+				// 格式处理
+				hop := output[length-1]
+				result := make([]string, hop.Distance)
+				for i := 0; i < len(result); i++ {
+					result[i] = strconv.Itoa(i+1) + ":*"
+				}
+				for _, h := range output {
+					for _, n := range h.Nodes {
+						rtt := 0.0
+						for _, r := range n.RTT {
+							rtt += float64(r.Nanoseconds()) / 1e6
+						}
+						rtt = rtt / float64(len(n.RTT))
+						// "1:148.153.93.9:-1:1.2:sendtimestamp"
+						if h.Distance-1 >= 32 {
+							continue
+						}
+						var sendts int64 = 0
+						if h.Distance-1 < len(sendTimestampsCopy) {
+							sendts = sendTimestampsCopy[h.Distance-1]
+						}
+						result[h.Distance-1] = strconv.Itoa(h.Distance) + ":" + n.IP.String() + ":" + "-1" + ":" +
+							fmt.Sprintf("%.2f", rtt) + ":" + fmt.Sprintf("%d", sendts) + ":" + fmt.Sprintf("%d", n.TTL)
+						//strconv.FormatFloat(rtt, 'E', -1, 64)
+						//fmt.Printf("%d. %v %v\n", h.Distance, n.IP, n.RTT)
+					}
+				}
+				sendTimestampsCopy = nil
+				sendTimestamps = nil
+				runtime.GC()
+				// 添加到map
+				resultMap[ip] = result
+			}
+			// 严格按照traceroute.DefaultTracer.Timeout来进行trace。防止流量汇聚。
+			time.Sleep(oneIPStart.Add(traceroute.DefaultTracer.Timeout).Sub(time.Now()))
+		}
+
+		logger.Info("TraceRoute", zap.String("C段", netId+".0"),
+			zap.Float64("耗时 ms", float64(time.Since(start))/1e6),
+			zap.Int("GoId", goId))
+
+		if len(resultMap) != 0 {
+			tmp, err := json.Marshal(resultMap)
+			if err != nil {
+				panic(err)
+			}
+			var traceResult = string(tmp)
+			traceResult = netId + ".0\t" + traceResult + "\t" + fmt.Sprintf("%d", startTimestamp) + "\n"
+			//logger.Debug(netId + ".0 TraceRoute done.")
+			// 可以优化成只有管道+单个协程
+			storeFile.SaveTraceData(netId, traceResult, roundCnt)
+		}
+	}
+}
+
+func probeNet(startNetId, endNetId []int, roundCnt int, openTrace bool) {
+	// 复制一遍，防止改变原数组
+	var netIdNums = make([]int, len(startNetId))
+	copy(netIdNums, startNetId)
+
+	// <= 就是左闭右闭
+	for netCompare(netIdNums, endNetId) <= 0 {
+		var netIdStr = make([]string, 3)
+		for k, v := range netIdNums {
+			//netIdStr[k] = fmt.Sprintf("%d", v)
+			netIdStr[k] = strconv.Itoa(v)
+		}
+		netId := strings.Join(netIdStr, ".")
+		//pingCNet(netId, roundCnt, openTrace)
+		for len(traceAllIpChan) == cap(traceAllIpChan) {
+			time.Sleep(2 * time.Second)
+		}
+		v := NetIdRoundCnt{roundCnt: roundCnt, netId: netId}
+		traceAllIpChan <- v
+		// 网段递增
+		netIdNums[2]++
+		overflow := 0
+		for i := 2; i >= 0; i-- {
+			if overflow == 1 {
+				netIdNums[i]++
+				overflow = 0
+			}
+			if netIdNums[i] > 255 {
+				if i == 0 {
+					// 最高位溢出即255.255.255.0之后
+					netIdNums[i] = 1
+					return
+				} else {
+					netIdNums[i] = 0
+				}
+				overflow = 1
+			}
+		}
+	}
+}
+
+func initSendConn() {
+	tmp, err := net.ListenIP("ip4:icmp", nil)
+
+	sendConn = tmp
+	//sendConn, err := net.DialTimeout(, mes.Address, time.Millisecond*1000)
+	if err != nil {
+		logger.Error("获取connection失败", zap.Any("err", err))
+		pid := os.Getpid()
+		cmd := fmt.Sprintf("lsof -p %d | wc", pid)
+		logger.Error(cmd + ": " + transmitter.ExecShell(cmd))
+		cmd = fmt.Sprintf("lsof -p %d | grep raw | wc", pid)
+		logger.Error(cmd + ": " + transmitter.ExecShell(cmd))
+		cmd = fmt.Sprintf("lsof -p %d | grep pipe | wc", pid)
+		logger.Error(cmd + ": " + transmitter.ExecShell(cmd))
+	}
+	raw, err := sendConn.SyscallConn()
+	if err != nil {
+		sendConn.Close()
+		logger.Error("获取SyscallConn失败", zap.Any("err", err))
+	}
+	_ = raw.Control(func(fd uintptr) {
+		err = syscall.SetsockoptInt(int(fd), syscall.IPPROTO_IP, syscall.IP_HDRINCL, 1)
+	})
+	if err != nil {
+		sendConn.Close()
+		logger.Error(fmt.Sprintf("SetsockoptInt失败"), zap.Any("err", err))
+	}
+}
+
+func initRecvConn() {
+	var err error
+	recvConn, err = icmp.ListenPacket("ip4:icmp", "0.0.0.0")
+	if err != nil {
+		logger.Error("listen err, %s", zap.Error(err))
+		return
+	}
+	recvPktConn = recvConn.IPv4PacketConn()
+	f := new(ipv4.ICMPFilter)
+	f.SetAll(true)                                // 开启过滤
+	f.Accept(ipv4.ICMPTypeEchoReply)              // Echo Reply
+	f.Accept(ipv4.ICMPTypeDestinationUnreachable) // Destination Unreachable
+	f.Accept(ipv4.ICMPTypeRedirect)               // Redirect
+	f.Accept(ipv4.ICMPTypeRouterAdvertisement)    // Router Advertisement
+	f.Accept(ipv4.ICMPTypeTimeExceeded)           // Time Exceeded
+	f.Block(ipv4.ICMPTypeEcho)
+	recvPktConn.SetControlMessage(ipv4.FlagSrc, true)
+	recvPktConn.SetControlMessage(ipv4.FlagTTL, true)
+	if err := recvPktConn.SetICMPFilter(f); err != nil {
+		logger.Error("SetICMPFilter出错", zap.Error(err))
+		os.Exit(-1)
+	}
+}
+
+func initTracer(nTracer int) {
+	// 总共开启nTracer个协程一起发包，但要先按照10个一组，均匀分布在2秒Timeout之内。
+	c := 10
+	nGroup := nTracer / c
+	if nGroup <= 0 {
+		nGroup = 1
+	}
+	fmt.Println(nGroup)
+	cntTracer := 0
+	groupDelay := time.Duration(traceroute.DefaultTracer.Timeout.Milliseconds()/int64(nGroup)) * time.Millisecond
+	for i := 0; i < nGroup; i++ {
+		for j := 0; j < c; j++ {
+			go traceCNet(cntTracer)
+			cntTracer++
+		}
+		time.Sleep(groupDelay)
+	}
+	for ; cntTracer < nTracer; cntTracer++ {
+		go traceCNet(cntTracer)
+	}
+	logger.Info("初始化trace协程", zap.Int("协程数量", cntTracer))
+}
+
+func calcTraceGoroutines(cfg *config.Config) int {
+	ipNums := int64(0)
+	for i := range cfg.Points {
+		ipNums += utils.CalcIPNum(cfg.Points[i].Address)
+	}
+	// 默认使用24小时测量
+	var seconds int64 = 60 * 60 * 24
+	if cfg.Setting.ExpectedPeriodMinutes != nil {
+		seconds = *cfg.Setting.ExpectedPeriodMinutes * 60
+	}
+	// 如果只有trace，超时为2秒， 20Mb/s带宽，2秒能发40Mb数据，每个包64字节，40Mb = 5MB，等于5M/64=81920个包，
+	//TTL上限为32(一个IP32个包)，那么可以同时测量81920/32 = 2560个IP，一个协程只能在2秒内trace一个IP。
+	// 北非IP49,611,776个，每个2秒，总共需要99,223,552秒，99,223,552/3600/24/7=164.06个协程同时发
+	// IP数量 * 2 /
+	num := ipNums * 2 / seconds
+	if num/2*seconds != ipNums {
+		num += 1
+	}
+	fmt.Println(ipNums, "ipnums")
+	fmt.Println(num, "num")
+	if num < 25 {
+		num = 25
+	}
+	fmt.Println(num, "num")
+	return int(num)
+}
+
+func Start(configFilename string) {
+	cfg := config.LoadConfig(configFilename)
+	// 初始化发包connect
+	initSendConn()
+	initRecvConn()
+	defer recvConn.Close()
+	defer recvPktConn.Close()
+	defer sendConn.Close()
+
+	//traceRoutineNum := 250
+	// 开启定时存储
+	go timerSave()
+	// 开启TraceRoute协程
+	//for i := 0; i < traceRoutineNum; i++ {
+	//	go Traceroute(i)
+	//}
+	initTracer(calcTraceGoroutines(&cfg))
+
+	// 开启数据包接收
+	recvRoutineNum := 10
+	for i := 0; i < recvRoutineNum; i++ {
+		go transmitter.RecvAllIcmpPacket(netDataMap, recvPktConn, i)
+	}
+	durationHours := time.Duration(-1)
+	roundCnt := 0
+	configChan := make(chan config.Config, 10)
+	config.DynamicUpdateConfig(configFilename, configChan)
+	for {
+		select {
+		case cfg = <-configChan:
+		default:
+		}
+		if config.ConfigMeansStop(&cfg) {
+			return
+		}
+		host = cfg.Setting.Hostname
+		measurementPrefix = cfg.Setting.Label
+		start := time.Now().Unix()
+		logger.Info("测量开始", zap.Int("轮数", roundCnt))
+		// 针对每个优先级的区域进行探测
+		for ii := 0; ii < len(cfg.Points); ii++ {
+			// TODO 针对每个优先级根据设定的时间进行延时。启用设定的延时就不按整点进行。
+			//priority := cfg.Points[ii].Levels
+			ipNumPerMs = cfg.Points[ii].IPNumPerMs
+			packetSize = cfg.Points[ii].Size
+			netsInt := netsToInt(cfg.Points[ii].Address)
+			// 探测一个区域中的所有地址段
+			for i := 0; i < len(netsInt)/2; i++ {
+				startNetId := netsInt[i*2]
+				endNetId := netsInt[i*2+1]
+				probeNet(startNetId, endNetId, roundCnt, cfg.Points[ii].EnableTrace)
+			}
+			//time.Sleep(time.Minute)
+			//time.Sleep(time.Second)
+		}
+		//time.Sleep(time.Duration(10) * time.Second)
+		roundCnt++
+		now := time.Now()
+		cost := now.Unix() - start
+		// 不sleep 一直trace
+		if cfg.Setting.ExpectedPeriodMinutes != nil {
+			sleepSecond := *cfg.Setting.ExpectedPeriodMinutes*60 - cost
+			time.Sleep(time.Duration(sleepSecond) * time.Second)
+			continue
+		}
+		if durationHours == time.Duration(-1) {
+			// 整小时时间还没有对齐
+			hours := (time.Duration(cost) * time.Second) / time.Hour
+			hours += 1
+			durationHours = hours
+			// 获取当前的小时对应的timestamp second
+			//currentHourSec := now.Unix() - int64(now.Second()) - int64(60*now.Minute())
+			// 下一个小时
+			//nextHour := time.Duration(currentHourSec)*time.Second + time.Hour
+			// 距离下一个小时的时间
+			//timeToNextHour := nextHour - time.Duration(now.UnixNano())
+			// sleep 距离下一个整点时间的timeToNextHour
+			//time.Sleep(timeToNextHour)
+		} else {
+			// 整小时时间已经对齐
+			//time.Sleep(durationHours*time.Hour - time.Duration(cost)*time.Second)
+		}
+	}
+}
+
+//检查timer队列中的第一个网段，如果时间到了就
+func timerSave() {
+	for {
+		if len(timer) == 0 {
+			time.Sleep(20 * time.Millisecond)
+			continue
+		}
+		netId := <-timer // 这里读出来数netid_轮数 1.1.1_1
+		//netId, round := GetNetIdRound(netIdRound)
+		load, ok := netDataMap.Load(netId)
+		if !ok {
+
+			//  这里有可能会出错，出错原因是在一个测量超时时间内重复测量了一个C段
+			//  导致重复测量的原因是配置文件中存在相同的C段且相邻
+			//  可以忽略这个错误，不会对测量结果产生任何影响
+			netIds := make([]string, 20)
+			netDataMap.Range(func(key, value interface{}) bool {
+				netIds = append(netIds, key.(string))
+				return true
+			})
+			logger.Error("Load出错", zap.String("netId", netId))
+			logger.Error("Load出错", zap.Strings("netDataMap中所有的netId", netIds))
+			continue
+		}
+		netPingData, ok := load.(*transmitter.NetPingData)
+		if !ok {
+			logger.Error("sync.Map load转换出错")
+			continue
+		}
+		// 等待在map中清除这个网段的数据, 两倍IP过期时间
+		timeout := time.Duration(netPingData.TimeoutMs*2) * time.Millisecond
+		time.Sleep(timeout - time.Since(netPingData.SentAllPktTs))
+		netDataMap.Delete(netId)
+		//logger.Debug("清除", zap.String("C", netId))
+		logger.Info("清除", zap.String("C", netId))
+
+		// 开始存储。对RttMap中的key-value排序
+		keys := make([]string, 255)
+		size := 0
+		netPingData.RttMap.Range(func(key, value interface{}) bool {
+			k, _ := key.(string)
+			keys[size] = k
+			size++
+			return true
+		})
+		logger.Info("收包结束", zap.String("C段", netId+".0"),
+			zap.Int("活跃IP个数", size), zap.Int64("耗时", time.Since(netPingData.SentAllPktTs).Milliseconds()))
+		//没有数据存个毛
+		if size == 0 {
+			continue
+		}
+
+		keys = keys[:size]                     //key 是ip
+		sort.Slice(keys, func(i, j int) bool { //对获取的有效数据下标进行排序
+			if len(keys[i]) == len(keys[j]) {
+				return keys[i] <= keys[j]
+			} else {
+				return len(keys[i]) <= len(keys[j])
+			}
+		})
+		// 对这些ip进行筛选，然后traceroute。 如果开启的话
+		if netPingData.OpenTrace {
+			data := traceData{
+				netId:  netId,
+				ips:    keys,
+				sendTs: netPingData.SentAllPktTs.Unix(),
+				round:  netPingData.Round,
+			}
+			select {
+			case traceChan <- data:
+			default:
+				logger.Error("traceChan满了")
+				go func() { traceChan <- data }()
+			}
+			//go Traceroute(netId, keys, netPingData.SentAllPktTs.Unix(), netPingData.Round)
+		}
+
+		// 对value排序
+		values := make([]string, size)
+		for i := 0; i < size; i++ {
+			k := keys[i]
+			value, _ := netPingData.RttMap.Load(k)
+			v := value.(string)
+			values[i] = v
+		}
+
+		// 将数据发到transfer转储
+		// 吐了，这里还要再拆分
+		for _, v := range values {
+			// v == ip + ":" + fmt.Sprintf("%d", ttl) + ":" + fmt.Sprintf("%.3f", rtt)
+			splits := strings.Split(v, ":")
+			dest := splits[0]
+			rtt64, _ := strconv.ParseFloat(splits[2], 32)
+			_, err := storeDB.SendPingData(context.TODO(), &pb.TransferPingRequest{
+				MeasurementBaseResult: &pb.MeasurementBaseInfo{
+					RecvTimestampMillisecond: netPingData.SentAllPktTs.UnixMilli(),
+					Host:                     host,
+					Destination:              dest,
+					Protocol:                 pb.ProbeProtocol_ICMP,
+					Round:                    int32(netPingData.Round),
+					MeasurementPrefix:        measurementPrefix,
+				},
+				RttMillisecond: float32(rtt64),
+			})
+			if err != nil {
+				logger.Error("storeDB.SendPingData error ", zap.Error(err))
+			}
+		}
+
+		tmp, err := json.Marshal(values)
+		if err != nil {
+			panic(err)
+		}
+		var rttResult = string(tmp)
+		rttResult = netId + ".0\t" + rttResult + "\t" + fmt.Sprintf("%d", netPingData.SentAllPktTs.Unix()) + "\n"
+		//写入文件
+		storeFile.SavePingData(netId, rttResult, netPingData.Round)
+
+	}
+}
+
+//ipNumPerMs 每毫秒测多少个IP
+func pingCNet(netId string, roundCnt int, openTrace bool) {
+	var hostId = 1
+
+	//startTimestamp := time.Now().Unix()
+	start := time.Now()
+	// 一个网段的ping结果
+	netPingData := new(transmitter.NetPingData)
+	netPingData.NetID = netId
+	//netPingData.SendTimestamp = make(map[string]int64)
+	netPingData.SendTimestamp = new(sync.Map)
+	netPingData.RttMap = new(sync.Map)
+	netPingData.TimeoutMs = timeoutMs // 先写死
+	netPingData.Round = roundCnt
+	netPingData.OpenTrace = openTrace
+	// 尤为关键，一定要先为收包做好准备才能发包。
+	if _, loaded := netDataMap.LoadOrStore(netId, netPingData); loaded {
+		// loaded说明已经存在，就不需要再重复测量，直接跳过
+		return
+	}
+	//netDataMap.Store(netId, netPingData)
+	for hostId = 1; hostId < 255; hostId++ {
+		var ip = netId + "." + strconv.Itoa(hostId)
+		// 每个IP只ping一次
+		transmitter.SendIcmpPacketSync1Conn(1, packetSize, ip, sendConn, netPingData.SendTimestamp)
+	}
+	// 记录这个段的时间
+	netPingData.SentAllPktTs = time.Now()
+	// 将这个段添加到timer中，等待结果存储
+	select {
+	case timer <- netId:
+	default:
+		go func() {
+			logger.Debug("timerChan 满了")
+			timer <- netId
+		}()
+	}
+
+	logger.Info("只发包", zap.String("C段", netId+".0"), zap.Float64("耗时", float64(time.Since(start))/1e6))
+	//duration := time.Duration(costMs)*time.Millisecond - time.Since(start) - time.Duration(80)*time.Nanosecond*1000 //gxm: 180微妙的goroutine切换
+	theoryCost := time.Duration(msPerCNet) * time.Millisecond / time.Duration(ipNumPerMs)
+	duration := theoryCost - time.Since(start) - time.Duration(80)*time.Microsecond //gxm: 180微妙的goroutine切换
+	time.Sleep(duration)
+	logger.Info("发包速度控制", zap.String("C段", netId+".0"), zap.Float64("耗时", float64(time.Since(start))/1e6))
+	if time.Since(start) > theoryCost*2 {
+		logger.Warn("控制超时")
+		//sysmonitor.UpdateLog()
+	}
+}
+
+func TraceSingleIp(ip string) {
+
+}
+
+//func Traceroute(netId string, ips []string, startTimestamp int64, round int) {
+func Traceroute(goId int) {
+	// 00-01, 01-10, 10-11
+	// 1-64, 65-128, 129-192, 192-254
+	for {
+		data := <-traceChan
+		netId := data.netId
+		startTimestamp := data.sendTs
+		round := data.round
+		var resultMap map[string][]string
+		resultMap = map[string][]string{}
+		start := time.Now()
+		//没有采用并发进行mtr
+		for i := 0; i < 4; i++ {
+			var output []*traceroute.Hop
+			var err error
+			var tracehostId int
+			var sendTimestamps []int64
+			rand.Seed(time.Now().UnixNano())
+			if i == 0 {
+				tracehostId = rand.Intn(63) + 1
+			} else if i == 1 {
+				tracehostId = rand.Intn(63) + 65
+			} else if i == 2 {
+				tracehostId = rand.Intn(63) + 129
+			} else if i == 3 {
+				tracehostId = rand.Intn(63) + 192
+			}
+			traceIp := netId + "." + strconv.Itoa(tracehostId)
+			output, sendTimestamps, err = traceroute.Trace(net.ParseIP(traceIp))
+			sendTimestampsCopy := make([]int64, len(sendTimestamps))
+			copy(sendTimestampsCopy, sendTimestamps)
+			if err != nil {
+				logger.Error("trace", zap.Error(err))
+			}
+			mb := &pb.MeasurementBaseInfo{
+				RecvTimestampMillisecond: startTimestamp * 1000, // notify, it's start-timestamp
+				Host:                     host,
+				Destination:              traceIp,
+				Protocol:                 pb.ProbeProtocol_ICMP,
+				Round:                    int32(round),
+				MeasurementPrefix:        measurementPrefix,
+			}
+			length := len(output)
+			if length != 0 {
+				hop := output[length-1]
+				result := make([]string, hop.Distance)
+				for i := 0; i < len(result); i++ {
+					result[i] = strconv.Itoa(i+1) + ":*"
+				}
+				for _, h := range output {
+					for _, n := range h.Nodes {
+						rtt := 0.0
+						for _, r := range n.RTT {
+							rtt += float64(r.Nanoseconds()) / 1e6
+						}
+						rtt = rtt / float64(len(n.RTT))
+						// "1:148.153.93.9:-1:1.2:sendtimestamp:ttl"
+						if h.Distance-1 >= 32 {
+							continue
+						}
+						var sendts int64 = 0
+						if h.Distance-1 < len(sendTimestampsCopy) {
+							sendts = sendTimestampsCopy[h.Distance-1]
+						}
+						result[h.Distance-1] = strconv.Itoa(h.Distance) + ":" + n.IP.String() + ":" + "-1" + ":" +
+							fmt.Sprintf("%.2f", rtt) + ":" + fmt.Sprintf("%d", sendts) + ":" + fmt.Sprintf("%d", n.TTL)
+						_, err = storeDB.SendTraceData(context.TODO(), &pb.TransferTraceRequest{
+							MeasurementBaseResult: mb,
+							ResponseIP:            n.IP.String(),
+							Hop:                   int32(h.Distance),
+							RttMillisecond:        float32(rtt),
+						})
+						if err != nil {
+							logger.Error("storeDB.SendTraceData error ", zap.Error(err))
+						}
+						//strconv.FormatFloat(rtt, 'E', -1, 64)
+						//fmt.Printf("%d. %v %v\n", h.Distance, n.IP, n.RTT)
+					}
+				}
+				sendTimestampsCopy = nil
+				sendTimestamps = nil
+				resultMap[traceIp] = result
+			}
+		}
+
+		logger.Info("TraceRoute", zap.String("C段", netId+".0"),
+			zap.Float64("耗时 ms", float64(time.Since(start))/1e6),
+			zap.Int("已Trace数量", len(resultMap)),
+			zap.Int("Channel剩余", len(traceChan)),
+			zap.Int("GoId", goId))
+		if len(resultMap) != 0 {
+			tmp, err := json.Marshal(resultMap)
+			if err != nil {
+				panic(err)
+			}
+			var traceResult = string(tmp)
+			traceResult = netId + ".0\t" + traceResult + "\t" + fmt.Sprintf("%d", startTimestamp) + "\n"
+			//logger.Debug(netId + ".0 TraceRoute done.")
+
+			// 可以优化成只有管道+单个协程
+			storeFile.SaveTraceData(netId, traceResult, round)
+		}
+	}
+}
