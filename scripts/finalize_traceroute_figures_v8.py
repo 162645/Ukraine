@@ -384,6 +384,7 @@ def main() -> None:
     ap.add_argument("--v7-root", required=True, type=Path)
     ap.add_argument("--strict-rebuild-root", required=True, type=Path)
     ap.add_argument("--legacy-s2-root", required=True, type=Path)
+    ap.add_argument("--visual-review", required=True, type=Path)
     ap.add_argument("--out", required=True, type=Path)
     args = ap.parse_args()
     if args.out.exists():
@@ -427,6 +428,10 @@ def main() -> None:
 
     write_captions(args.out)
     write_message_contract(args.out)
+    review_text = args.visual_review.read_text(encoding="utf-8")
+    if "render_review_status = PASS" not in review_text:
+        raise RuntimeError("Visual-review record is not PASS")
+    shutil.copy2(args.visual_review, args.out / "qa/S2_V8_RENDER_REVIEW.md")
     shutil.copy2(Path(__file__), args.out / "scripts/finalize_traceroute_figures_v8.py")
 
     checks: list[dict[str, str]] = []
@@ -442,6 +447,7 @@ def main() -> None:
     check("no threshold added", True, "no threshold appears in code or outputs")
     check("coverage row count", len(coverage) == 8, f"rows={len(coverage)}")
     check("legacy S2 retained only as provenance hashes", len(legacy_s2_manifest) == 6, f"files_hashed={len(legacy_s2_manifest)}")
+    check("server-rendered images visually reviewed", True, "qa/S2_V8_RENDER_REVIEW.md records PASS after PNG inspection")
     for relpath in ["FIGURE1_PLACEHOLDER.md"]:
         before = args.v7_root / relpath
         after = args.out / relpath

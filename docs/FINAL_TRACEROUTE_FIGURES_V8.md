@@ -23,6 +23,7 @@ python scripts/finalize_traceroute_figures_v8.py \
   --v7-root /home/wsl/final_paper_compact_v7 \
   --strict-rebuild-root /home/wsl/Ukraine_method_lineage_20260925/outputs/own_traceroute_rebuild_v1 \
   --legacy-s2-root /home/wsl/XiaoLunWen_doc_complete_20260908/paper_current_final_v3_fixed \
+  --visual-review /home/wsl/Ukraine_paper_figures_v8_work/docs/S2_V8_RENDER_REVIEW.md \
   --out /home/wsl/final_paper_compact_v8
 ```
 
