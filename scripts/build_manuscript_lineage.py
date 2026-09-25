@@ -456,6 +456,7 @@ def result_manifest(
             "generating_script": str(script),
             "code_git_commit": code_commit,
             "source_sha256": sha256(source_file),
+            "source_content_digest": "",
             "note": note,
         })
 
@@ -510,7 +511,8 @@ def append_traceroute_results(
         "source_file": table,
         "generating_script": str(Path(__file__)),
         "code_git_commit": implementation_commit,
-        "source_sha256": ledger,
+        "source_sha256": "",
+        "source_content_digest": ledger,
         "note": "Read-only server-side ClickHouse scan; measured data, not sampler output",
     }
     trace_rows = [

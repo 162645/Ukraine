@@ -77,7 +77,7 @@ def test_measured_traceroute_facts_enter_result_manifest():
     base = pd.DataFrame(columns=[
         "manuscript_name", "value", "value_scale", "analysis_sample",
         "source_file", "source_column_or_rule", "generating_script",
-        "code_git_commit", "source_sha256", "note",
+        "code_git_commit", "source_sha256", "source_content_digest", "note",
     ])
     summary = {
         "status": "PASS", "table": "trace_table", "measurement_row_n": "10",
@@ -90,3 +90,5 @@ def test_measured_traceroute_facts_enter_result_manifest():
     assert len(result) == 5
     assert int(result.loc[result["manuscript_name"].eq("Measured traceroute rows"), "value"].iloc[0]) == 10
     assert result["source_file"].str.contains("ClickHouse active_measurement.trace_table", regex=False).all()
+    assert result["source_sha256"].eq("").all()
+    assert result["source_content_digest"].str.contains("measurement_hash_xor=11", regex=False).all()
