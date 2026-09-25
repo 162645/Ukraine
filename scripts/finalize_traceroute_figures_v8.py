@@ -225,7 +225,7 @@ def render_figure5(out: Path, lang: str, rel: pd.DataFrame, router: pd.DataFrame
         axs[0].grid(axis="x", color=COLORS["grid"], linewidth=0.4, alpha=0.25)
         panels = [
             (axs[1], router, "(b) 路由器接口证据" if zh else "(b) Router-interface evidence", "路由器接口证据比例（%）" if zh else "Router-interface evidence (%)"),
-            (axs[2], trace, "(c) 严格 Traceroute 中间跳证据" if zh else "(c) Strict traceroute intermediate-hop evidence", "严格 Traceroute 目标前公网中间跳比例（%）" if zh else "Strict traceroute pre-target public intermediate-hop evidence (%)"),
+            (axs[2], trace, "(c) 严格 Traceroute 证据" if zh else "(c) Strict traceroute evidence", "严格 Traceroute 证据比例（%）" if zh else "Strict traceroute evidence (%)"),
         ]
         for ax, data, title, ylabel in panels:
             x, y, lo, hi = errorbar_arrays(data)
