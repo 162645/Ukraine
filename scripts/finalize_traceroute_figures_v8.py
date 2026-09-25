@@ -14,6 +14,7 @@ import hashlib
 import json
 import math
 import shutil
+import subprocess
 from pathlib import Path
 
 import matplotlib
@@ -379,6 +380,30 @@ def write_package_manifest(out: Path) -> None:
     pd.DataFrame(rows).to_csv(target, index=False)
 
 
+def write_implementation_provenance(out: Path, strict_root: Path) -> str:
+    repo = Path(__file__).resolve().parent.parent
+    commit = subprocess.check_output(
+        ["git", "-C", str(repo), "rev-parse", "HEAD"], text=True
+    ).strip()
+    strict_summary_path = strict_root / "OWN_TRACEROUTE_REBUILD_SUMMARY.json"
+    strict_summary = json.loads(strict_summary_path.read_text(encoding="utf-8"))
+    payload = {
+        "figure_renderer_git_commit": commit,
+        "strict_rebuild_implementation_git_commit": strict_summary["implementation_git_commit"],
+        "strict_rebuild_scientific_input_git_commit": strict_summary["scientific_input_git_commit"],
+        "strict_rebuild_summary_sha256": sha256(strict_summary_path),
+        "strict_s2_bins_sha256": sha256(strict_root / "OWN_TRACEROUTE_S2_DESCRIPTIVE_BINS.csv"),
+        "strict_overlap_sha256": sha256(strict_root / "OWN_TRACEROUTE_CAIDA_OVERLAP.csv"),
+        "clickhouse_source_table": strict_summary["source_table"],
+        "formal_own_traceroute_positive_ip_n": EXPECTED["own_traceroute_ip_n"],
+        "historical_label_role": "audit/provenance only",
+    }
+    (out / "reports/IMPLEMENTATION_PROVENANCE.json").write_text(
+        json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+    )
+    return commit
+
+
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--v7-root", required=True, type=Path)
@@ -433,6 +458,7 @@ def main() -> None:
         raise RuntimeError("Visual-review record is not PASS")
     shutil.copy2(args.visual_review, args.out / "qa/S2_V8_RENDER_REVIEW.md")
     shutil.copy2(Path(__file__), args.out / "scripts/finalize_traceroute_figures_v8.py")
+    renderer_commit = write_implementation_provenance(args.out, args.strict_rebuild_root)
 
     checks: list[dict[str, str]] = []
     def check(name: str, ok: bool, detail: str) -> None:
@@ -448,6 +474,7 @@ def main() -> None:
     check("coverage row count", len(coverage) == 8, f"rows={len(coverage)}")
     check("legacy S2 retained only as provenance hashes", len(legacy_s2_manifest) == 6, f"files_hashed={len(legacy_s2_manifest)}")
     check("server-rendered images visually reviewed", True, "qa/S2_V8_RENDER_REVIEW.md records PASS after PNG inspection")
+    check("renderer commit recorded", len(renderer_commit) == 40, renderer_commit)
     for relpath in ["FIGURE1_PLACEHOLDER.md"]:
         before = args.v7_root / relpath
         after = args.out / relpath
