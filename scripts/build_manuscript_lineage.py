@@ -492,6 +492,37 @@ def result_manifest(
     return pd.DataFrame(rows)
 
 
+def append_traceroute_results(
+    results: pd.DataFrame,
+    ch_summary: dict[str, object],
+    implementation_commit: str,
+) -> pd.DataFrame:
+    """Register measured traceroute table facts in the unified result manifest."""
+    if ch_summary.get("status") != "PASS":
+        return results
+    table = f"ClickHouse active_measurement.{ch_summary['table']}"
+    ledger = (
+        f"measurement_hash_xor={ch_summary['measurement_ledger_hash_xor']};"
+        f"measurement_hash_sum={ch_summary['measurement_ledger_hash_sum']}"
+    )
+    common = {
+        "analysis_sample": "Authoritative normalized AWS Frankfurt quarter-traceroute measurement table",
+        "source_file": table,
+        "generating_script": str(Path(__file__)),
+        "code_git_commit": implementation_commit,
+        "source_sha256": ledger,
+        "note": "Read-only server-side ClickHouse scan; measured data, not sampler output",
+    }
+    trace_rows = [
+        {**common, "manuscript_name": "Measured traceroute rows", "value": int(ch_summary["measurement_row_n"]), "value_scale": "count", "source_column_or_rule": "count()"},
+        {**common, "manuscript_name": "Measured traceroute cycles", "value": int(ch_summary["cycle_n"]), "value_scale": "count", "source_column_or_rule": "uniqExact(cycle_id)"},
+        {**common, "manuscript_name": "Traceroute rows reaching target", "value": int(ch_summary["reached_target_row_n"]), "value_scale": "count", "source_column_or_rule": "sum(reached_target)"},
+        {**common, "manuscript_name": "Traceroute minimum measurement time UTC", "value": ch_summary["min_measure_time"], "value_scale": "UTC timestamp", "source_column_or_rule": "min(measure_time)"},
+        {**common, "manuscript_name": "Traceroute maximum measurement time UTC", "value": ch_summary["max_measure_time"], "value_scale": "UTC timestamp", "source_column_or_rule": "max(measure_time)"},
+    ]
+    return pd.concat([results, pd.DataFrame(trace_rows)], ignore_index=True)
+
+
 def write_missingness_contract(out: Path, inputs: Inputs) -> None:
     (out / "MISSINGNESS_AND_DENOMINATOR_CONTRACT.md").write_text(
         """# Missingness and denominator contract
@@ -750,6 +781,8 @@ def run(args: argparse.Namespace) -> dict[str, object]:
         args.clickhouse_user,
         password,
     )
+    results = append_traceroute_results(results, ch_summary, implementation_commit)
+    results.to_csv(out / "MANUSCRIPT_RESULT_MANIFEST.csv", index=False)
 
     gates = {
         "crosswalk_all_exact": bool(crosswalk["mapping_status"].eq("EXACT_ONE_SCHEDULE_EVENT").all()),
@@ -797,7 +830,10 @@ def run(args: argparse.Namespace) -> dict[str, object]:
     )
 
     output_rows = []
-    for path in sorted(p for p in out.rglob("*") if p.is_file() and p.name != "OUTPUT_FILE_MANIFEST.csv"):
+    for path in sorted(
+        p for p in out.rglob("*")
+        if p.is_file() and p.name not in {"OUTPUT_FILE_MANIFEST.csv", "server_run.log"}
+    ):
         output_rows.append({"file": path.relative_to(out).as_posix(), "bytes": path.stat().st_size, "sha256": sha256(path)})
     pd.DataFrame(output_rows).to_csv(out / "OUTPUT_FILE_MANIFEST.csv", index=False)
     return summary

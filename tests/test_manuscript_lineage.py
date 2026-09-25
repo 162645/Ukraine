@@ -71,3 +71,22 @@ def test_union_hours_does_not_double_count_overlapping_queue_rows():
         (pd.Timestamp("2024-01-01T01:00:00Z"), pd.Timestamp("2024-01-01T03:00:00Z")),
     ]
     assert MODULE._union_hours(intervals) == 3.0
+
+
+def test_measured_traceroute_facts_enter_result_manifest():
+    base = pd.DataFrame(columns=[
+        "manuscript_name", "value", "value_scale", "analysis_sample",
+        "source_file", "source_column_or_rule", "generating_script",
+        "code_git_commit", "source_sha256", "note",
+    ])
+    summary = {
+        "status": "PASS", "table": "trace_table", "measurement_row_n": "10",
+        "cycle_n": "2", "reached_target_row_n": "3",
+        "min_measure_time": "2024-01-01 00:00:00.000000",
+        "max_measure_time": "2024-01-01 01:00:00.000000",
+        "measurement_ledger_hash_xor": "11", "measurement_ledger_hash_sum": "22",
+    }
+    result = MODULE.append_traceroute_results(base, summary, "abc123")
+    assert len(result) == 5
+    assert int(result.loc[result["manuscript_name"].eq("Measured traceroute rows"), "value"].iloc[0]) == 10
+    assert result["source_file"].str.contains("ClickHouse active_measurement.trace_table", regex=False).all()
