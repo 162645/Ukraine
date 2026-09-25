@@ -578,12 +578,12 @@ def build_traceroute_provenance(
         summary_sql = f"""
 SELECT
   count() AS measurement_row_n,
-  uniqExact(dst_ip) AS distinct_target_ip_n,
-  uniqExact(prefix24) AS distinct_prefix24_n,
+  uniqCombined64(dst_ip) AS distinct_target_ip_estimate_n,
+  uniqCombined64(prefix24) AS distinct_prefix24_estimate_n,
   uniqExact(cycle_id) AS cycle_n,
   min(measure_time) AS min_measure_time,
   max(measure_time) AS max_measure_time,
-  countIf(length(raw_trace) > 0) AS raw_trace_nonempty_row_n,
+  countIf(ip_path_hash != 0) AS structured_path_nonempty_row_n,
   sum(toUInt64(reached_target)) AS reached_target_row_n,
   sum(toUInt64(responded_hop_count)) AS responded_hop_sum,
   sum(toUInt64(star_hop_count)) AS star_hop_sum,
@@ -592,6 +592,7 @@ SELECT
   groupBitXor(cityHash64(concat(toString(cycle_id), '|', dst_ip, '|', toString(hop_count), '|', toString(responded_hop_count), '|', toString(star_hop_count), '|', toString(reached_target), '|', toString(ip_path_hash)))) AS measurement_ledger_hash_xor,
   sum(cityHash64(concat(toString(cycle_id), '|', dst_ip, '|', toString(hop_count), '|', toString(responded_hop_count), '|', toString(star_hop_count), '|', toString(reached_target), '|', toString(ip_path_hash)))) AS measurement_ledger_hash_sum
 FROM {table}
+SETTINGS max_threads = 8, max_memory_usage = 8589934592
 FORMAT JSONEachRow
 """
         raw = clickhouse_query(clickhouse_url, clickhouse_user, clickhouse_password, summary_sql)
@@ -605,9 +606,9 @@ SELECT
   cycle_id,
   min(measure_time) AS measure_time,
   count() AS measurement_row_n,
-  uniqExact(prefix24) AS prefix24_n,
-  uniqExact(dst_ip) AS distinct_target_ip_n,
-  countIf(length(raw_trace) > 0) AS raw_trace_nonempty_row_n,
+  uniqCombined64(prefix24) AS prefix24_estimate_n,
+  uniqCombined64(dst_ip) AS distinct_target_ip_estimate_n,
+  countIf(ip_path_hash != 0) AS structured_path_nonempty_row_n,
   sum(toUInt64(reached_target)) AS reached_target_row_n,
   sum(toUInt64(responded_hop_count)) AS responded_hop_sum,
   sum(toUInt64(star_hop_count)) AS star_hop_sum,
@@ -618,6 +619,7 @@ SELECT
 FROM {table}
 GROUP BY cycle_id
 ORDER BY cycle_id
+SETTINGS max_threads = 8, max_memory_usage = 8589934592
 FORMAT CSVWithNames
 """
         (out / "TRACEROUTE_MEASUREMENT_MANIFEST_BY_CYCLE.csv").write_bytes(
@@ -632,8 +634,8 @@ SELECT
   substring(raw_trace, 1, 512) AS raw_trace_prefix
 FROM {table}
 WHERE length(raw_trace) > 0
-ORDER BY cycle_id, prefix24, dst_ip
 LIMIT 20
+SETTINGS max_threads = 1, max_memory_usage = 1073741824
 FORMAT JSONEachRow
 """
         (out / "TRACEROUTE_MEASUREMENT_SAMPLE.jsonl").write_bytes(
@@ -657,7 +659,7 @@ The actual selected destination and its measured route are stored in ClickHouse.
 
 ## Frozen measured traceroute ledger
 
-ClickHouse status: `{ch_summary.get('status')}`. The authoritative measurements remain in the read-only ClickHouse table because committing hundreds of millions of rows to Git would be inappropriate. `TRACEROUTE_MEASUREMENT_SCHEMA.tsv` freezes its schema; `TRACEROUTE_MEASUREMENT_MANIFEST_BY_CYCLE.csv` records target and observed-route counts plus order-independent hashes; `TRACEROUTE_MEASUREMENT_SAMPLE.jsonl` is a small auditable sample. The full measured ledger can be queried with:
+ClickHouse status: `{ch_summary.get('status')}`. The authoritative measurements remain in the read-only ClickHouse table because committing hundreds of millions of rows to Git would be inappropriate. `TRACEROUTE_MEASUREMENT_SCHEMA.tsv` freezes its schema; `TRACEROUTE_MEASUREMENT_MANIFEST_BY_CYCLE.csv` records observed-route counts plus order-independent hashes; `TRACEROUTE_MEASUREMENT_SAMPLE.jsonl` is a small auditable sample. Fields ending in `_estimate_n` use ClickHouse `uniqCombined64` to bound memory on the shared server and are explicitly estimates; row counts and both ledger hashes are exact deterministic scans of the structured measurement columns. `raw_trace` is sampled but is not decompressed across the full table because the normalized hop/path columns carry the measured result used downstream. The full measured ledger can be queried with:
 
 ```sql
 SELECT cycle_id, measure_time, data_center, prefix24, dst_ip,
